@@ -9,7 +9,7 @@ Drafts can be saved, listed, edited and deleted, and they persist in the browser
 Application state is centralized in a Redux Toolkit store with normalized entity data.
 
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1, 1.1.2 and 1.2.1**.
+**Experiments 1.1.1, 1.1.2, 1.2.1 and 1.2.2**.
 
 ---
 
@@ -38,13 +38,20 @@ managing posts and platform-related data.
 Covers the store, domain slices, normalized state via `createEntityAdapter`, async thunks, and
 connecting components with `useSelector` / `useDispatch`.
 
+### Experiment 1.2.2 — Optimized Selectors & Performance Handling
+
+**Aim:** To optimize state access and improve application performance using memoized selectors and
+efficient rendering strategies.
+
+Covers derived state, memoized selectors with `createSelector`, a derived analytics view, and
+measured re-render and recomputation reductions.
+
 ### Scope
 
 There is still no real backend, no authentication and no social media integration — publishing is
-simulated in the browser, and everything is stored locally. Memoized selectors (`createSelector`)
-and the formal re-render optimisation pass belong to Experiment **2.2** and are deliberately not
-implemented yet; retry logic and toast notifications belong to Experiment 1's Assignment 4. The
-architecture is arranged so all of those can be added without restructuring what exists.
+simulated in the browser, and everything is stored locally. Retry logic and toast notifications
+belong to Experiment 1's Assignment 4 and are deliberately not implemented yet. The architecture is
+arranged so those can be added without restructuring what exists.
 
 ---
 
@@ -77,12 +84,20 @@ architecture is arranged so all of those can be added without restructuring what
 
 ### Centralized state (1.2.1)
 
-- Single Redux store composed from four domain slices
+- Single Redux store composed from domain slices, with UI state kept in its own slices
 - Normalized `{ ids, entities }` state for platforms, drafts and published posts
 - Async CRUD through `createAsyncThunk`, with pending / fulfilled / rejected handled in the slice
 - Published posts are now real, persisted application data with their own panel
 - Components read the store directly — `PlatformSelector` and `PostComposer` take no props at all
 - Errors scoped per slice: a failed draft load leaves the composer and published posts working
+
+### Optimized selectors (1.2.2)
+
+- All derived data computed by memoized `createSelector` pipelines, not stored
+- Content insights panel: draft/post counts, over-limit count, average length, per-platform breakdown
+- Filtering, paging and counting moved out of the component into composable selectors
+- Expensive grapheme-based over-limit check runs once per data change instead of once per render
+- `React.memo` on list and stat rows, `useCallback` on dispatching handlers
 
 ---
 
@@ -98,10 +113,12 @@ architecture is arranged so all of those can be added without restructuring what
 | **Prettier**       | Formatting, including automatic Tailwind class sorting.                                                 |
 | **Redux Toolkit**  | Centralized store, normalized entity state and async thunks (added in 1.2.1).                           |
 | **React-Redux**    | `useSelector` / `useDispatch` bindings between the store and components.                                |
+| **Reselect**       | Memoized selectors via `createSelector` — ships inside Redux Toolkit, so it is not a separate install.  |
 
 Up to Experiment 1.1.2 the app used only `useState` and `useReducer`, which was the right call for
 two state owners that barely interacted. Redux Toolkit was introduced in 1.2.1 once three domains
 (platforms, drafts, published posts) needed to be read by components in different parts of the tree.
+Experiment 1.2.2 added no new dependency — `createSelector` comes with Redux Toolkit.
 
 ---
 
@@ -131,7 +148,8 @@ store
 ├── platforms  { ids, entities, selectedPlatformId }
 ├── drafts     { ids, entities, status, error, actionError, isSaving, pendingIds }
 ├── posts      { ids, entities, status, error, actionError, isPublishing, pendingIds }
-└── composer   { editingDraftId, sessionId }          ← UI state, not data
+├── composer   { editingDraftId, sessionId }                 ← UI state, not data
+└── filters    { searchTerm, platformFilter, visibleCount }  ← UI state, not data
 ```
 
 Slices are split by **domain**, not by screen, and data state is kept separate from UI state.
@@ -146,6 +164,8 @@ ComposerWorkspace ....... layout only, no state
     │     ├── PlatformSelector ... no props — selects and dispatches directly
     │     └── PostEditor ......... local content state, passed down
     │
+    ├── ContentInsightsPanel . no props — all figures from memoized selectors
+    │
     ├── DraftsPanel .......... no props — dispatches fetchDrafts itself
     │     └── DraftListItem ...... takes only `draftId`, looks its own entity up
     │
@@ -159,13 +179,19 @@ the normalized store, which is what removes the last of the prop drilling.
 
 ### What did _not_ go into the store
 
-Centralizing state does not mean centralizing _everything_. Three things stayed local on purpose:
+Centralizing state does not mean centralizing _everything_:
 
-| Stays local           | Why                                                    |
-| --------------------- | ------------------------------------------------------ |
-| Post content          | Changes on every keystroke, needed by one subtree only |
-| Draft search / filter | A view concern of one panel; nothing else reads it     |
-| Delete confirmation   | Lives and dies inside a single row                     |
+| Stays local         | Why                                                    |
+| ------------------- | ------------------------------------------------------ |
+| Post content        | Changes on every keystroke, needed by one subtree only |
+| Delete confirmation | Lives and dies inside a single row                     |
+
+Draft search and paging **did** move into the store in 1.2.2, reversing the 1.2.1 decision. The
+reason is specific: a `createSelector` can only memoize over store state, so filters held in
+component state force the derived list back into a per-instance `useMemo` that nothing else can
+reuse. Moving them made the whole `drafts → filtered → paged` chain one shared, composable,
+memoized pipeline — and it was verified that search typing still re-renders neither the composer nor
+the insights panel.
 
 Putting post content in the store would push a dispatch through the whole subscription system for
 every character typed, to no benefit. Global state is for **shared** data. Measured after the
@@ -182,11 +208,13 @@ the alternative, an effect that copies props into state, is a well-known source 
 ```
 src/
 ├── store/
-│   ├── index.js                      configureStore — composes the four slices
+│   ├── index.js                      configureStore — composes the five slices
 │   ├── platformsSlice.js             Normalized platforms + selected platform
 │   ├── draftsSlice.js                Normalized drafts + async CRUD thunks
 │   ├── postsSlice.js                 Normalized published posts + thunks
-│   └── composerSlice.js              UI state: which draft is open, session id
+│   ├── composerSlice.js              UI state: which draft is open, session id
+│   ├── filtersSlice.js               UI state: search, platform filter, paging
+│   └── selectors.js                  Memoized derived state (createSelector)
 ├── components/
 │   ├── workspace/
 │   │   └── ComposerWorkspace.jsx     Layout only
@@ -202,9 +230,11 @@ src/
 │   ├── drafts/
 │   │   ├── DraftsPanel.jsx           List, search, filter, paging, load/error states
 │   │   └── DraftListItem.jsx         One row — takes an id, memoised
-│   └── posts/
-│       ├── PublishedPostsPanel.jsx   Published post list
-│       └── PublishedPostItem.jsx     One row — takes an id, memoised
+│   ├── posts/
+│   │   ├── PublishedPostsPanel.jsx   Published post list
+│   │   └── PublishedPostItem.jsx     One row — takes an id, memoised
+│   └── insights/
+│       └── ContentInsightsPanel.jsx  Derived analytics from memoized selectors
 ├── config/
 │   └── platforms.js                  Platform rules and warning threshold
 ├── hooks/
@@ -314,6 +344,74 @@ is a normal state for work in progress, so the save path checks only that the co
 
 ---
 
+## Derived State & Memoized Selectors
+
+Nothing derived is stored. Counts, filtered lists and analytics are all computed from the store by
+`createSelector` pipelines in `src/store/selectors.js`.
+
+### The pipeline
+
+```
+selectAllDrafts ─┐
+selectPlatformFilter ─┤
+selectNormalizedQuery ─┴─► selectFilteredDrafts ─┬─► selectVisibleDraftIds
+                                                  ├─► selectFilteredDraftCount
+                                                  └─► selectHiddenDraftCount ─► selectHasMoreDrafts
+```
+
+Each layer recomputes only when _its own_ inputs change. `selectNormalizedQuery` exists as a separate
+tiny selector on purpose: it trims and lowercases the search term, so changing `"draft"` to
+`"DRAFT"` produces the same normalized value and the expensive filter below **does not re-run**.
+Verified — a case change and a trailing space each caused 0 recomputations, while a genuinely
+different query caused exactly 1.
+
+### The expensive one
+
+```js
+export const selectOverLimitDraftCount = createSelector(
+  [selectAllDrafts, selectPlatformEntities],
+  (drafts, platforms) => drafts.filter(/* Intl.Segmenter over every draft */).length,
+);
+```
+
+This is the clearest case for memoization in the codebase. Deciding whether a draft is over its
+limit means running grapheme segmentation over its whole body, and it composes across two slices —
+draft content on one side, platform limits on the other.
+
+Measured with **40 drafts of ~945 characters**, 200 calls:
+
+|                       | Time         |
+| --------------------- | ------------ |
+| Memoized selector     | **0.6 ms**   |
+| Same logic unmemoized | **1,659 ms** |
+
+That is ~8 ms per unmemoized call — over half a frame budget, on every render. Memoized, it ran
+**0** times across those 200 calls, and both produced the same answer.
+
+### How Reselect 5 actually memoizes
+
+Two behaviours worth knowing, because they differ from older advice:
+
+1. **Reference equality on input results.** This is why normalization matters: the drafts array
+   identity changes only when a draft actually changes, so unrelated dispatches do not invalidate
+   the cache.
+2. **`weakMapMemoize` is the default**, not the old cache-size-1 `lruMemoize`. Cycling a search
+   through `'' → a → ab → abc → ab → a → ''` caused only **3** recomputations rather than 7,
+   because revisiting an earlier query hit the cache. With the old default it would have thrashed.
+
+### Rendering optimisations
+
+- `React.memo` on `DraftListItem`, `PublishedPostItem`, and the insight `Stat` / `BreakdownRow` rows
+- `useCallback` on every dispatching handler in `DraftsPanel`, so memoized children stay valid
+- Rows take an **id**, not an object, so they subscribe to one entity each
+- `DraftsPanel` selects `selectVisibleDraftIds` — a memoized array — so it re-renders only when the
+  set of visible ids changes, not when a draft's text changes
+
+There is no `useMemo` left in `DraftsPanel`: the memoization moved into selectors, where it is
+shared rather than per-instance.
+
+---
+
 ## Validation Model
 
 `validatePost(content, platform)` is a pure function: same inputs, same output, no React involved.
@@ -387,6 +485,10 @@ reads from the returned object, additions should be additive rather than changes
   `extraReducers`.
 - **Selectors** — components read through selector functions, so they never depend on the store's
   internal shape.
+- **Memoization** — `createSelector` caches a result and recomputes only when an input result
+  changes by reference.
+- **Selector composition** — selectors built from other selectors, so each layer recomputes
+  independently.
 - **Async workflows** — `async/await` with `try/catch`, and separate loading, success and error
   states for each operation.
 - **Cleanup and stale closures** — every timer is cleared on unmount, and async completions are
@@ -440,9 +542,16 @@ barely interacted, and `useState` + `useReducer` were the right tools — adding
 been ceremony. It became worthwhile in 1.2.1 once three domains needed reading from different parts
 of the tree.
 
-**No Reselect yet.** `createSelector` and the formal re-render optimisation pass are Experiment 2.2.
-The selectors here are plain functions; the ones that return new arrays will be memoised then, which
-is exactly the problem that experiment exists to solve.
+**Memoize where the work is, not everywhere.** `createSelector` is applied to selectors that filter,
+group or compute — not to trivial field reads like `selectSearchTerm`, where the wrapper would cost
+more than it saves. The layered design puts the cheap normalization step above the expensive filter
+so the expensive one is invalidated as rarely as possible.
+
+**Filters moved into the store, reversing a 1.2.1 decision.** In 1.2.1 search and paging were local
+because nothing else read them. A memoized selector can only memoize over store state, so keeping
+them local would have forced the derived list back into a per-component `useMemo`. Moving them made
+the whole pipeline shared and composable. The re-render cost of that move was measured, not assumed:
+search typing re-renders neither the composer nor the insights panel.
 
 **Rows take an id, not an object.** `DraftListItem` receives `draftId` and selects its own entity.
 That is what makes `memo` effective without threading stable callbacks down: the row also dispatches
@@ -578,15 +687,37 @@ One bug was found and fixed this way: publishing an open draft dispatched `compo
 bumped `sessionId` and remounted the composer before its success notice could render. A dedicated
 `composerUnbound` action now detaches from the draft without remounting.
 
+### Selector optimisation (1.2.2)
+
+Measured with `selector.recomputations()` (built into Reselect) and temporary render counters, all
+removed before committing. Dataset: 40 drafts of ~945 characters.
+
+| Case                               | Result                                                             |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| Memoized vs unmemoized, 200 runs   | **0.6 ms** vs **1,659 ms** — same result, 0 recomputations         |
+| Typing 78 chars in the composer    | **0** recomputations across all 5 derived selectors                |
+| Typing in the composer             | 0 insights renders, 0 draft-row renders                            |
+| Typing in search                   | 0 composer renders, 0 insights renders (rows change, as they must) |
+| Search case change `draft`→`DRAFT` | 0 recomputations — normalizes to the same query                    |
+| Search trailing space              | 0 recomputations                                                   |
+| Genuinely new query                | exactly 1 recomputation                                            |
+| Search cycle `''→a→ab→abc→ab→a→''` | **3** recomputations, not 7 — `weakMapMemoize` cache hits          |
+| Over-limit stat                    | Correct across slices (draft content × platform limit)             |
+| Responsive                         | 375px, four panels stack, no horizontal overflow                   |
+| Console                            | No errors or React warnings                                        |
+
 ---
 
 ## Future Experiments
 
 The current structure leaves specific places for later work:
 
-- **Memoized selectors** (Experiment 2.2) — the immediate next step. `selectAllDrafts` and the
-  filtered list in `DraftsPanel` return new arrays on every call, which is exactly what
-  `createSelector` fixes. Reselect ships inside Redux Toolkit, so no new dependency is needed.
+- **Calendar and scheduling views** — the PDF's stated end goal for selectors. A `scheduledFor`
+  field on the draft record plus a `selectDraftsByDay` selector composed from `selectAllDrafts`
+  would follow the same pipeline as the insights panel.
+- **List virtualization** — paging currently caps rendered rows at six at a time. Past a few hundred
+  drafts, windowing would replace it; the selectors already return ids, which is what a virtualizer
+  wants.
 - **Richer platform rules** — extend `platforms.js` and add cases to `resolveStatus` in
   `postValidation.js`. No component changes required.
 - **Retry logic and toast notifications** (Experiment 1, Assignment 4) — `localCollection.js` is the
