@@ -20,10 +20,16 @@ const SUCCESS_NOTICE_MS = 5000;
  * simple `useState` calls keeps every state transition in one readable file
  * and gives future experiments a single seam to swap the simulated publish for
  * a real API call.
+ *
+ * `initialDraft` seeds the editor when an existing draft is opened. It is read
+ * once, as initial state only — the parent forces a fresh instance by changing
+ * PostComposer's `key` when a different draft is loaded, which is React's
+ * intended way to reset state rather than syncing props into state with an
+ * effect.
  */
-export function usePostComposer() {
-  const [platformId, setPlatformId] = useState(DEFAULT_PLATFORM_ID);
-  const [content, setContent] = useState('');
+export function usePostComposer(initialDraft = null) {
+  const [platformId, setPlatformId] = useState(initialDraft?.platformId ?? DEFAULT_PLATFORM_ID);
+  const [content, setContent] = useState(initialDraft?.content ?? '');
   const [publishStatus, setPublishStatus] = useState(PUBLISH_STATUS.IDLE);
   const [lastPublishedPost, setLastPublishedPost] = useState(null);
 
