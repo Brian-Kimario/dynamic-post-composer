@@ -1,0 +1,42 @@
+{
+  "name": "dynamic-post-composer",
+  "version": "0.1.0",
+  "description": "Multi-platform social media post composer with platform-specific constraint validation",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Brian-Kimario/dynamic-post-composer.git"
+  },
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Brian-Kimario/dynamic-post-composer/issues"
+  },
+  "homepage": "https://github.com/Brian-Kimario/dynamic-post-composer#readme",
+  "private": "true",
+  "dependencies": {
+    "lucide-react": "^1.27.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.8.0",
+    "prettier": "^3.9.6",
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.1.5"
+  }
+}
