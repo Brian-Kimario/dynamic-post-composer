@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DEFAULT_PLATFORM_ID, getPlatform } from '../config/platforms';
+import { useDispatch, useSelector } from 'react-redux';
+import { platformSelected, selectSelectedPlatform } from '../store/platformsSlice';
+import {
+  composerReset,
+  composerUnbound,
+  draftBound,
+  selectEditingDraftId,
+} from '../store/composerSlice';
+import { deleteDraft, saveDraft, selectDraftById, selectIsSavingDraft } from '../store/draftsSlice';
+import { publishPost } from '../store/postsSlice';
 import { validatePost } from '../utils/postValidation';
 
 export const PUBLISH_STATUS = {
@@ -8,90 +17,123 @@ export const PUBLISH_STATUS = {
   SUCCESS: 'success',
 };
 
-/** Simulates network latency so the publishing state is actually observable. */
-const PUBLISH_SIMULATION_MS = 900;
 const SUCCESS_NOTICE_MS = 5000;
 
 /**
- * Owns the composer's entire state machine so that PostComposer stays a layout
- * component. The extraction earns its place here because publishing is
- * genuinely stateful — it is asynchronous, it has to clear content on success,
- * and it owns timers that must be cleaned up. Bundling that with the two
- * simple `useState` calls keeps every state transition in one readable file
- * and gives future experiments a single seam to swap the simulated publish for
- * a real API call.
+ * The composer's logic, now sitting on top of the store.
  *
- * `initialDraft` seeds the editor when an existing draft is opened. It is read
- * once, as initial state only — the parent forces a fresh instance by changing
- * PostComposer's `key` when a different draft is loaded, which is React's
- * intended way to reset state rather than syncing props into state with an
- * effect.
+ * Platform selection, drafts and published posts moved into Redux, so this hook
+ * reads them with `useSelector` and changes them with `dispatch`. What stayed
+ * local is `content`: it changes on every keystroke and only this subtree needs
+ * it, so keeping it in `useState` avoids dispatching an action per character.
+ * That is the "separation of UI state and data state" idea applied honestly —
+ * global state is for shared data, not for everything.
  */
-export function usePostComposer(initialDraft = null) {
-  const [platformId, setPlatformId] = useState(initialDraft?.platformId ?? DEFAULT_PLATFORM_ID);
-  const [content, setContent] = useState(initialDraft?.content ?? '');
+export function usePostComposer() {
+  const dispatch = useDispatch();
+
+  const platform = useSelector(selectSelectedPlatform);
+  const editingDraftId = useSelector(selectEditingDraftId);
+  const isSavingDraft = useSelector(selectIsSavingDraft);
+
+  // Seeds the editor when an existing draft is opened. Read once as initial
+  // state only — ComposerWorkspace remounts this component via `key` when a
+  // different draft is opened.
+  const editingDraft = useSelector((state) =>
+    editingDraftId ? selectDraftById(state, editingDraftId) : null,
+  );
+
+  const [content, setContent] = useState(editingDraft?.content ?? '');
   const [publishStatus, setPublishStatus] = useState(PUBLISH_STATUS.IDLE);
   const [lastPublishedPost, setLastPublishedPost] = useState(null);
 
-  const publishTimerRef = useRef(null);
   const successTimerRef = useRef(null);
 
-  const platform = getPlatform(platformId);
+  useEffect(() => {
+    return () => clearTimeout(successTimerRef.current);
+  }, []);
 
   /**
-   * Derived, never stored. Character count, remaining characters and status all
-   * come from `content` + `platform`, so there is no second copy of the truth
-   * that could drift out of sync.
-   *
-   * The `useMemo` is not about typing — `content` changes on every keystroke, so
-   * validation necessarily re-runs then. It avoids re-running the grapheme
-   * segmentation when an *unrelated* piece of state changes (publish status
-   * ticking through publishing → success → idle) while a long post sits in the
-   * editor.
+   * Derived, never stored. The `useMemo` does not speed up typing — `content`
+   * changes every keystroke, so validation necessarily re-runs. It avoids
+   * re-running grapheme segmentation when unrelated state changes while a long
+   * post sits in the editor.
    */
   const validation = useMemo(() => validatePost(content, platform), [content, platform]);
 
-  // Timers are cleared on unmount so a pending publish can never set state on an
-  // unmounted component.
-  useEffect(() => {
-    return () => {
-      clearTimeout(publishTimerRef.current);
-      clearTimeout(successTimerRef.current);
-    };
-  }, []);
+  const selectPlatform = useCallback(
+    (platformId) => {
+      dispatch(platformSelected(platformId));
+      if (publishStatus === PUBLISH_STATUS.SUCCESS) {
+        setPublishStatus(PUBLISH_STATUS.IDLE);
+      }
+    },
+    [dispatch, publishStatus],
+  );
 
-  const selectPlatform = useCallback((nextPlatformId) => {
-    setPlatformId(nextPlatformId);
-    // Content is intentionally preserved across platform switches: comparing the
-    // same draft against different limits is the core interaction of this
-    // experiment. Only the stale success notice is dismissed.
-    setPublishStatus((current) =>
-      current === PUBLISH_STATUS.SUCCESS ? PUBLISH_STATUS.IDLE : current,
-    );
-  }, []);
+  /**
+   * `.unwrap()` re-throws the thunk's rejection so this reads like ordinary
+   * async code; without it the dispatch always resolves and the failure would
+   * have to be inspected on the returned action.
+   */
+  const saveCurrentDraft = useCallback(async () => {
+    try {
+      const saved = await dispatch(
+        saveDraft({ id: editingDraftId, content, platformId: platform.id }),
+      ).unwrap();
 
-  const publish = useCallback(() => {
-    if (!validation.isValid || publishStatus === PUBLISH_STATUS.PUBLISHING) {
-      return;
+      if (!editingDraftId) {
+        dispatch(draftBound(saved.id));
+      }
+      return saved;
+    } catch {
+      // The slice already recorded the message; the panel renders it.
+      return null;
     }
+  }, [content, dispatch, editingDraftId, platform.id]);
+
+  const publish = useCallback(async () => {
+    if (!validation.isValid || publishStatus === PUBLISH_STATUS.PUBLISHING) return;
 
     setPublishStatus(PUBLISH_STATUS.PUBLISHING);
 
-    publishTimerRef.current = setTimeout(() => {
+    try {
+      await dispatch(publishPost({ content, platformId: platform.id })).unwrap();
+
       setLastPublishedPost({
         platformName: platform.name,
         characterCount: validation.characterCount,
-        publishedAt: new Date(),
       });
-      setContent('');
-      setPublishStatus(PUBLISH_STATUS.SUCCESS);
 
+      // A published draft has served its purpose. Unbind rather than reset:
+      // `composerReset` bumps the session id, which would remount this component
+      // and discard the success notice before it ever rendered.
+      if (editingDraftId) {
+        dispatch(deleteDraft(editingDraftId));
+        dispatch(composerUnbound());
+      }
+      setContent('');
+
+      setPublishStatus(PUBLISH_STATUS.SUCCESS);
       successTimerRef.current = setTimeout(
         () => setPublishStatus(PUBLISH_STATUS.IDLE),
         SUCCESS_NOTICE_MS,
       );
-    }, PUBLISH_SIMULATION_MS);
-  }, [platform.name, publishStatus, validation.characterCount, validation.isValid]);
+    } catch {
+      setPublishStatus(PUBLISH_STATUS.IDLE);
+    }
+  }, [
+    content,
+    dispatch,
+    editingDraftId,
+    platform.id,
+    platform.name,
+    publishStatus,
+    validation.characterCount,
+    validation.isValid,
+  ]);
+
+  const stopEditing = useCallback(() => dispatch(composerReset()), [dispatch]);
 
   const dismissSuccessNotice = useCallback(() => {
     clearTimeout(successTimerRef.current);
@@ -104,6 +146,10 @@ export function usePostComposer(initialDraft = null) {
     setContent,
     selectPlatform,
     validation,
+    editingDraftId,
+    isSavingDraft,
+    saveCurrentDraft,
+    stopEditing,
     publishStatus,
     lastPublishedPost,
     publish,
