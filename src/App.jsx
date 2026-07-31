@@ -1,5 +1,5 @@
 import { PenLine } from 'lucide-react';
-import PostComposer from './components/post-composer/PostComposer';
+import ComposerWorkspace from './components/workspace/ComposerWorkspace';
 
 /**
  * Application shell. Kept free of composer state so that a later experiment can
@@ -15,17 +15,21 @@ export default function App() {
           </span>
           <div>
             <h1 className="text-base font-semibold tracking-tight">Dynamic Post Composer</h1>
-            <p className="text-xs text-slate-500">Platform-aware drafting with live validation</p>
+            <p className="text-xs text-slate-500">
+              Platform-aware drafting with live validation and saved drafts
+            </p>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-        <PostComposer />
+        <ComposerWorkspace />
       </main>
 
       <footer className="mx-auto max-w-5xl px-4 pb-8 sm:px-6">
-        <p className="text-xs text-slate-400">Experiment 1.1.1 — Full Stack-II</p>
+        <p className="text-xs text-slate-400">
+          Experiment 1 — Post composer &amp; draft management — Full Stack-II
+        </p>
       </footer>
     </div>
   );
