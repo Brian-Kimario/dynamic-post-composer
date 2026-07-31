@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 import composerReducer from './composerSlice';
 import draftsReducer from './draftsSlice';
+import filtersReducer from './filtersSlice';
 import platformsReducer from './platformsSlice';
 import postsReducer from './postsSlice';
 
@@ -22,5 +23,6 @@ export const store = configureStore({
     drafts: draftsReducer,
     posts: postsReducer,
     composer: composerReducer,
+    filters: filtersReducer,
   },
 });
