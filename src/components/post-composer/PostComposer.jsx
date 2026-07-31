@@ -1,9 +1,12 @@
+import { useEffect, useRef, useState } from 'react';
+import { FilePenLine, X } from 'lucide-react';
 import { usePostComposer, PUBLISH_STATUS } from '../../hooks/usePostComposer';
 import CharacterCounter from './CharacterCounter';
 import PlatformSelector from './PlatformSelector';
 import PostEditor from './PostEditor';
 import PublishButton from './PublishButton';
 import PublishSuccessNotice from './PublishSuccessNotice';
+import SaveDraftButton from './SaveDraftButton';
 import ValidationMessage from './ValidationMessage';
 
 // Stable ids shared between the textarea's aria-describedby and the elements
@@ -11,12 +14,21 @@ import ValidationMessage from './ValidationMessage';
 const COUNTER_ID = 'post-character-count';
 const VALIDATION_ID = 'post-validation-message';
 
+const SAVED_INDICATOR_MS = 2500;
+
 /**
- * The only stateful component in the tree. Everything below it is presentational
- * and receives data through props, which keeps the child components trivially
- * reusable and testable.
+ * Owns the composer's own state (content, platform, publishing). Draft state
+ * lives above this component so that typing here never re-renders the drafts
+ * list — see ComposerWorkspace.
  */
-export default function PostComposer() {
+export default function PostComposer({
+  initialDraft = null,
+  editingDraftId = null,
+  isSavingDraft = false,
+  onSaveDraft,
+  onStopEditing,
+  onPublished,
+}) {
   const {
     platform,
     content,
@@ -27,13 +39,38 @@ export default function PostComposer() {
     lastPublishedPost,
     publish,
     dismissSuccessNotice,
-  } = usePostComposer();
+  } = usePostComposer(initialDraft);
+
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => clearTimeout(savedTimerRef.current);
+  }, []);
 
   const showSuccessNotice = publishStatus === PUBLISH_STATUS.SUCCESS && lastPublishedPost;
+  const isEditingDraft = editingDraftId !== null;
+
+  // A draft only needs content — unlike publishing, it is explicitly allowed to
+  // be over the platform limit, because that is a normal state for work in
+  // progress.
+  const canSaveDraft = !validation.isEmpty;
+
+  const handleSaveDraft = async () => {
+    const saved = await onSaveDraft({ content, platformId: platform.id });
+    if (!saved) return;
+
+    setJustSaved(true);
+    clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setJustSaved(false), SAVED_INDICATOR_MS);
+  };
+
+  const handlePublish = () => {
+    publish();
+    onPublished?.();
+  };
 
   return (
-    // Single column on mobile; the platform list becomes a fixed sidebar only
-    // once there is room for it.
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[18rem_1fr] lg:items-start">
       <PlatformSelector selectedPlatformId={platform.id} onSelectPlatform={selectPlatform} />
 
@@ -42,6 +79,21 @@ export default function PostComposer() {
         className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"
       >
         <div className="flex flex-col gap-4">
+          {isEditingDraft && (
+            <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-700">
+              <FilePenLine aria-hidden="true" className="size-4 shrink-0 text-slate-500" />
+              <p className="flex-1">Editing a saved draft.</p>
+              <button
+                type="button"
+                onClick={onStopEditing}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200 focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:outline-none"
+              >
+                <X aria-hidden="true" className="size-3.5" />
+                Stop editing
+              </button>
+            </div>
+          )}
+
           {showSuccessNotice && (
             <PublishSuccessNotice post={lastPublishedPost} onDismiss={dismissSuccessNotice} />
           )}
@@ -59,12 +111,21 @@ export default function PostComposer() {
           <ValidationMessage id={VALIDATION_ID} validation={validation} />
 
           <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row-reverse sm:items-center sm:justify-between">
-            <PublishButton
-              platform={platform}
-              canPublish={validation.isValid}
-              publishStatus={publishStatus}
-              onPublish={publish}
-            />
+            <div className="flex flex-col gap-2 sm:flex-row-reverse sm:items-center">
+              <PublishButton
+                platform={platform}
+                canPublish={validation.isValid}
+                publishStatus={publishStatus}
+                onPublish={handlePublish}
+              />
+              <SaveDraftButton
+                isEditing={isEditingDraft}
+                isSaving={isSavingDraft}
+                justSaved={justSaved}
+                disabled={!canSaveDraft}
+                onSave={handleSaveDraft}
+              />
+            </div>
             <p className="text-xs text-slate-500">
               Publishing is simulated locally — nothing is sent to {platform.name}.
             </p>

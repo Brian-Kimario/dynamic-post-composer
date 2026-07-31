@@ -5,24 +5,36 @@ A multi-platform social media post composer with platform-specific constraint va
 Compose a single draft and check it against the character limits of Facebook, X, LinkedIn and
 Instagram, with live character counting, warning and error states, and accessible feedback.
 
+Drafts can be saved, listed, edited and deleted, and they persist in the browser across reloads.
+
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiment 1.1.1**.
+**Experiments 1.1.1 and 1.1.2**.
 
 ---
 
-## Experiment 1.1.1
+## Experiments
 
-**Title:** Dynamic Post Composer with Platform-Specific Constraint Validation
+### Experiment 1.1.1 — Post Composer with Platform Validation
 
 **Aim:** To design and develop a dynamic post composer interface supporting multiple platforms with
 constraint validation.
 
+Covers the composer, its platform configuration model, and client-side validation.
+
+### Experiment 1.1.2 — Draft Management
+
+**Aim:** To implement a draft management system that allows users to save, retrieve, and manage post
+drafts within the frontend, with optional simulation of backend interactions.
+
+Covers frontend CRUD over drafts, `localStorage` persistence, and asynchronous workflows behind a
+mock API layer.
+
 ### Scope
 
-This experiment covers the composer, its platform configuration model, and client-side validation.
-It deliberately stops there. There is no backend, no persistence, no authentication and no real
-social media integration — publishing is simulated in the browser. The architecture is arranged so
-those can be added later without restructuring what exists.
+There is still no real backend, no authentication and no social media integration — publishing is
+simulated in the browser, and drafts are stored locally. Retry logic and toast notifications belong
+to a later assignment and are deliberately not implemented yet. The architecture is arranged so all
+of those can be added without restructuring what exists.
 
 ---
 
@@ -40,6 +52,19 @@ those can be added later without restructuring what exists.
 - Responsive layout for mobile, tablet and desktop
 - Accessible feedback: labelled controls, keyboard navigation, live regions, non-colour-only status
 
+### Draft management (1.1.2)
+
+- Save the current post as a draft, and update that draft on subsequent saves
+- Draft list showing platform, excerpt, character usage and relative timestamp
+- Load a draft back into the composer, restoring both its content and its platform
+- Two-step delete confirmation that reverts itself if left untouched
+- Drafts persist in `localStorage` across reloads
+- Search and platform filtering over the draft list
+- Incremental rendering — six drafts at a time, with a "Show more" control
+- Asynchronous mock API with loading, error and retry states
+- Publishing a draft removes it from the list
+- Drafts may exceed the platform limit; only publishing is blocked
+
 ---
 
 ## Tech Stack
@@ -53,8 +78,9 @@ those can be added later without restructuring what exists.
 | **ESLint**         | Correctness rules, notably `eslint-plugin-react-hooks` for the rules of hooks.                          |
 | **Prettier**       | Formatting, including automatic Tailwind class sorting.                                                 |
 
-No state management library is used. The application has two pieces of real state, so React's
-built-in `useState` is sufficient — adding Redux or Zustand here would be cost without benefit.
+No state management library is used, and no new dependency was added for Experiment 1.1.2. The app
+has two state owners that barely interact, so React's built-in `useState` and `useReducer` are
+sufficient — Redux or Zustand here would be cost without benefit.
 
 ---
 
@@ -80,7 +106,7 @@ ask "is this X?" — it reads `platform.characterLimit` and renders the validati
 ### Data flow between components
 
 ```
-PostComposer  ......... owns all state (via usePostComposer)
+PostComposer  ......... owns composer state (via usePostComposer)
     │
     ├── props ────────► PlatformSelector
     │                       └── callback (onSelectPlatform) ──► updates platform state
@@ -94,9 +120,30 @@ PostComposer  ......... owns all state (via usePostComposer)
                             └── callback (onPublish) ─────────► runs simulated publish
 ```
 
-`PostComposer` is the only stateful component. Everything below it receives data through props and
-reports user intent back through callbacks. This keeps the leaf components pure, predictable and
-easy to reuse.
+Everything below `PostComposer` receives data through props and reports user intent back through
+callbacks. This keeps the leaf components pure, predictable and easy to reuse.
+
+### Where state lives, and why
+
+`ComposerWorkspace` sits above both features and deliberately splits the state:
+
+```
+ComposerWorkspace ....... owns drafts (useDrafts) + which draft is being edited
+    │
+    ├── props ────────► PostComposer ...... owns post content + platform + publishing
+    │                       └── callback (onSaveDraft) ──► create or update a draft
+    │
+    └── props ────────► DraftsPanel ....... owns search + filter + page size
+                            └── callback (onEditDraft) ──► loads a draft into the composer
+```
+
+Post content lives _inside_ `PostComposer`, not in the workspace. That is the whole point: typing
+re-renders only the composer subtree and never touches the draft list. Drafts live one level up
+because two siblings need them. State is placed as low as it can go, and no lower.
+
+Opening a draft works by changing `PostComposer`'s `key`, which remounts it with the draft as
+initial state. Remounting is React's intended way to reset a component's state — the alternative,
+an effect that copies props into state, is a well-known source of subtle bugs.
 
 ---
 
@@ -105,28 +152,81 @@ easy to reuse.
 ```
 src/
 ├── components/
-│   └── post-composer/
-│       ├── PostComposer.jsx          Container: owns state, composes the layout
-│       ├── PlatformSelector.jsx      Platform radio group
-│       ├── PostEditor.jsx            Controlled textarea
-│       ├── CharacterCounter.jsx      Count, remaining, progress bar
-│       ├── ValidationMessage.jsx     Status feedback (live region)
-│       ├── PublishButton.jsx         Publish action and its states
-│       └── PublishSuccessNotice.jsx  Post-publish confirmation
+│   ├── workspace/
+│   │   └── ComposerWorkspace.jsx     Coordinates composer + drafts, owns draft state
+│   ├── post-composer/
+│   │   ├── PostComposer.jsx          Owns post content, platform, publishing
+│   │   ├── PlatformSelector.jsx      Platform radio group
+│   │   ├── PostEditor.jsx            Controlled textarea
+│   │   ├── CharacterCounter.jsx      Count, remaining, progress bar
+│   │   ├── ValidationMessage.jsx     Status feedback (live region)
+│   │   ├── PublishButton.jsx         Publish action and its states
+│   │   ├── SaveDraftButton.jsx       Save / update draft action
+│   │   └── PublishSuccessNotice.jsx  Post-publish confirmation
+│   └── drafts/
+│       ├── DraftsPanel.jsx           List, search, filter, paging, load/error states
+│       └── DraftListItem.jsx         One draft row (memoised)
 ├── config/
 │   └── platforms.js                  Platform rules and warning threshold
 ├── hooks/
-│   └── usePostComposer.js            Composer state machine
+│   ├── usePostComposer.js            Composer state machine
+│   └── useDrafts.js                  Draft state machine (useReducer + async CRUD)
+├── services/
+│   └── draftsApi.js                  Mock async API over localStorage
 ├── utils/
-│   └── postValidation.js             Pure validation logic
+│   ├── postValidation.js             Pure validation logic
+│   └── draftFormatting.js            Excerpts and relative timestamps
 ├── App.jsx                           Application shell
 ├── main.jsx                          React entry point
 └── index.css                         Tailwind import and design tokens
 ```
 
 Directories separate by _responsibility_, not by file type alone: configuration, logic, state and
-presentation each have a home. Components are grouped in a `post-composer/` feature folder so that a
-second feature added in a later experiment sits alongside it rather than inside it.
+presentation each have a home. Components are grouped into feature folders (`post-composer/`,
+`drafts/`) so each feature stays self-contained.
+
+---
+
+## Draft Management Model
+
+### The mock API layer
+
+`services/draftsApi.js` exposes `fetchDrafts`, `createDraft`, `updateDraft` and `deleteDraft`. Every
+one is `async` and returns a Promise, even though `localStorage` is synchronous. The latency is
+simulated on purpose: it means the calling code is written against an asynchronous contract from day
+one, so swapping in a real backend later changes only the bodies of these four functions.
+
+`localStorage` is genuinely fallible — it throws in Safari private mode, when site data is disabled,
+and when the quota is exceeded, and the stored JSON can be corrupted by an older version of the app.
+Every access is wrapped so those surface as ordinary rejected promises the UI can render.
+
+### The draft record
+
+```js
+{
+  id: 'a3f1…',            // crypto.randomUUID()
+  content: 'Hello world',
+  platformId: 'linkedin',
+  createdAt: '2026-07-31T09:12:04.001Z',
+  updatedAt: '2026-07-31T09:15:22.517Z'
+}
+```
+
+### State machine
+
+`useDrafts` uses `useReducer` rather than several `useState` calls. One piece of data is mutated by
+four async operations, each with its own start/success/error transition. A reducer keeps every legal
+transition in one place — with separate `useState`s it is easy to set `isSaving` without clearing
+`actionError` and end up in a state that should not exist.
+
+Errors are split by blast radius. A failed _initial load_ replaces the panel with an error and a
+retry button, because there is no list to show. A failed _create/update/delete_ shows a dismissible
+banner above a list that still works.
+
+### A deliberate asymmetry
+
+A draft may exceed the platform character limit; only **publishing** is blocked. Being over the limit
+is a normal state for work in progress, so the save path checks only that the content is non-empty.
 
 ---
 
@@ -192,10 +292,20 @@ reads from the returned object, additions should be additive rather than changes
 - **Event handling** — `onChange` and `onClick` handlers translate DOM events into state updates.
 - **Conditional rendering** — the success notice renders only after publishing; the button swaps
   its label and icon while publishing.
-- **Hooks** — `useState`, `useMemo`, `useCallback`, `useRef` and `useEffect` (for timer cleanup),
-  plus one custom hook.
+- **Hooks** — `useState`, `useReducer`, `useMemo`, `useCallback`, `useRef` and `useEffect`, plus two
+  custom hooks.
 - **Component composition** — `PostComposer` assembles smaller components rather than being one
   large component.
+- **`useReducer` for a state machine** — draft loading and CRUD have many related transitions, so
+  they are expressed as one reducer instead of five loosely coupled `useState` calls.
+- **Async workflows** — `async/await` with `try/catch`, and separate loading, success and error
+  states for each operation.
+- **Cleanup and stale closures** — every timer is cleared on unmount, and async completions are
+  guarded by a mounted ref so a resolved request can never update an unmounted component.
+- **`memo` and `useCallback` together** — rows are memoised, and their handlers are stable, so the
+  memo actually holds. One without the other would do nothing.
+- **Resetting state with `key`** — opening a draft remounts the composer rather than syncing props
+  into state with an effect.
 
 ---
 
@@ -232,6 +342,23 @@ publishing → success → idle — while a long draft sits in the editor. Measu
 see as literal strings at build time, so a per-platform colour coming from data cannot be a dynamic
 class name. Those are passed as a `--platform-accent` custom property instead; everything else uses
 ordinary utilities.
+
+**Post content stays inside the composer.** It would have been easier to lift every piece of state
+into `ComposerWorkspace`, but then each keystroke would re-render the whole draft list. Keeping
+content in `PostComposer` and drafts one level up means typing touches only the composer subtree.
+Measured: 82 keystrokes produced **zero** draft-row renders.
+
+**No state management library, and no Reselect.** The app has two state owners that barely interact,
+so `useState` and `useReducer` are enough; Redux or Zustand would be ceremony. Reselect was
+considered for the filtered draft list and rejected — its `createSelector` composes memoised
+selectors over a _global store_, which does not exist here, and it arrives bundled with Redux
+Toolkit in a later experiment anyway. A single `useMemo` does the same job today without the
+dependency.
+
+**Persistence hides behind an async API.** Drafts could have been written to `localStorage` directly
+from the hook. Routing them through `services/draftsApi.js` instead means the components already
+handle latency, loading states and failure — the parts that are genuinely hard about a real backend —
+so that migration becomes a change to four function bodies.
 
 ---
 
@@ -310,6 +437,29 @@ browser:
 | Console            | No errors or React warnings                                                          |
 | Lint / build       | `npm run lint` clean, `npm run build` succeeds                                       |
 
+### Draft management (1.1.2)
+
+| Case                | Result                                                                          |
+| ------------------- | ------------------------------------------------------------------------------- |
+| Create draft        | Saved, appears in list, composer binds to it and button becomes "Update draft"  |
+| Persistence         | Written to `localStorage` with all five fields; survives a full page reload     |
+| Update draft        | Still one record — content changed, `updatedAt` advanced, no duplicate created  |
+| Load draft          | Restores content **and** platform; limit switched 280 → 3,000                   |
+| Stop editing        | Composer resets, badge and banner clear, button returns to "Save draft"         |
+| Delete              | First click arms "Confirm", second deletes from list and storage                |
+| Delete auto-revert  | Confirmation reverts to "Delete" if left untouched                              |
+| Publish a draft     | Draft removed from list and storage; success notice shown                       |
+| Load error          | Corrupted stored JSON → scoped error + "Try again"; composer still usable       |
+| Retry               | Recovered to 2 drafts without a page reload                                     |
+| Search / filter     | 25 drafts → search and platform filter narrow the list; paging resets           |
+| Incremental render  | 25 drafts stored, 6 rendered; "Show more" steps 6 → 12 → 18                     |
+| Re-render isolation | **82 keystrokes produced 0 draft-row renders** (measured via temporary counter) |
+| Responsive          | 375px and 1280px with 25 drafts; no horizontal overflow                         |
+
+The re-render figure was measured by temporarily incrementing a counter inside `DraftListItem`,
+confirming the counter was live (4 renders for 2 rows on mount, doubled by StrictMode), then
+removing the instrumentation.
+
 ---
 
 ## Future Experiments
@@ -318,16 +468,20 @@ The current structure leaves specific places for later work:
 
 - **Richer platform rules** — extend `platforms.js` and add cases to `resolveStatus` in
   `postValidation.js`. No component changes required.
+- **Retry logic and toast notifications** (Assignment 4) — `draftsApi.js` is the natural place to
+  wrap calls in a retry helper; the reducer already models the error states a toast would announce.
 - **Post previews** — a new `PostPreview` component reading the same `content` and `platform` props
   already available in `PostComposer`.
 - **Media support** — add media state to `usePostComposer` and a media rule to the validation module;
   the result object grows a field rather than changing shape.
-- **Drafts and scheduling** — `usePostComposer` is the seam. It already owns the full state machine,
-  so persistence can be added there without touching presentational components.
-- **Backend APIs and persistence** — the simulated `setTimeout` in `usePostComposer.publish` is the
-  single place a real API call goes. `postValidation.js` is framework-free and can be shared with
-  the server so the same rules run in both places.
-- **Authentication and routing** — `App.jsx` is intentionally free of composer state, so a router
+- **Scheduling** — drafts already carry timestamps; a `scheduledFor` field extends the same record.
+- **Redux Toolkit** — `useDrafts` is the migration target. Its reducer already has the shape RTK
+  expects, and `createSelector` (Reselect) arrives bundled for the derived draft lists.
+- **Backend APIs and persistence** — the four functions in `services/draftsApi.js` are the only
+  places that touch storage; swapping them for HTTP calls needs no component changes.
+  `postValidation.js` is framework-free and can be shared with the server so the same rules run in
+  both places.
+- **Authentication and routing** — `App.jsx` is intentionally free of feature state, so a router
   and auth provider can wrap it without disturbing the composer.
 
 ---
