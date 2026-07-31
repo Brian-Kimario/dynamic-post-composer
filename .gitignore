@@ -32,3 +32,6 @@ dist-ssr
 # Build/tooling caches
 .vite
 coverage
+
+# Course reference material (not part of the app)
+experiment_*.pdf
