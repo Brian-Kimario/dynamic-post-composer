@@ -1,16 +1,31 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { Loader2, Pencil, Trash2 } from 'lucide-react';
-import { getPlatform } from '../../config/platforms';
+import { deleteDraft, selectDraftById, selectIsDraftPending } from '../../store/draftsSlice';
+import { draftOpened, selectEditingDraftId } from '../../store/composerSlice';
+import { selectPlatformById } from '../../store/platformsSlice';
 import { buildExcerpt, formatAbsoluteTime, formatRelativeTime } from '../../utils/draftFormatting';
 import { countCharacters } from '../../utils/postValidation';
 
 /**
- * `memo` skips re-rendering a row whose props are unchanged. It only pays off
- * because the handlers passed in are wrapped in `useCallback` upstream — an
- * inline arrow function would be a new value every render and defeat it.
+ * Takes only an id and looks its own data up in the normalized store.
+ *
+ * This is the payoff of the `{ ids, entities }` shape. The row subscribes to one
+ * entity, so editing a different draft leaves it untouched — where a list that
+ * passed whole objects down would re-render every row whenever the array
+ * identity changed. It also dispatches its own actions, so no callbacks have to
+ * be created in the parent and kept stable for `memo` to work.
  */
-function DraftListItem({ draft, isActive, isPending, onEdit, onDelete }) {
-  const platform = getPlatform(draft.platformId);
+function DraftListItem({ draftId }) {
+  const dispatch = useDispatch();
+
+  const draft = useSelector((state) => selectDraftById(state, draftId));
+  const isPending = useSelector((state) => selectIsDraftPending(state, draftId));
+  const isActive = useSelector(selectEditingDraftId) === draftId;
+  const platform = useSelector((state) =>
+    draft ? selectPlatformById(state, draft.platformId) : undefined,
+  );
+
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const confirmTimerRef = useRef(null);
 
@@ -24,7 +39,7 @@ function DraftListItem({ draft, isActive, isPending, onEdit, onDelete }) {
     if (isConfirmingDelete) {
       clearTimeout(confirmTimerRef.current);
       setIsConfirmingDelete(false);
-      onDelete(draft.id);
+      dispatch(deleteDraft(draftId));
       return;
     }
 
@@ -32,8 +47,14 @@ function DraftListItem({ draft, isActive, isPending, onEdit, onDelete }) {
     confirmTimerRef.current = setTimeout(() => setIsConfirmingDelete(false), 4000);
   };
 
+  // A deleted draft leaves the store before this row unmounts, so the lookup can
+  // briefly return nothing. Rendering null is the standard guard for rows that
+  // select their own entity out of a normalized store.
+  if (!draft) return null;
+
   const characterCount = countCharacters(draft.content);
   const isOverLimit = characterCount > platform.characterLimit;
+  const excerpt = buildExcerpt(draft.content);
 
   return (
     <li
@@ -69,7 +90,7 @@ function DraftListItem({ draft, isActive, isPending, onEdit, onDelete }) {
         </time>
       </div>
 
-      <p className="mt-2 text-sm break-words text-slate-700">{buildExcerpt(draft.content)}</p>
+      <p className="mt-2 text-sm break-words text-slate-700">{excerpt}</p>
 
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className={`text-xs tabular-nums ${isOverLimit ? 'text-red-600' : 'text-slate-500'}`}>
@@ -84,7 +105,7 @@ function DraftListItem({ draft, isActive, isPending, onEdit, onDelete }) {
 
           <button
             type="button"
-            onClick={() => onEdit(draft)}
+            onClick={() => dispatch(draftOpened(draftId))}
             disabled={isPending}
             // The accessible name includes the excerpt so a screen reader user
             // moving between rows can tell which draft each button belongs to.

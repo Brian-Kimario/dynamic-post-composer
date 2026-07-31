@@ -28,7 +28,7 @@ export default function App() {
 
       <footer className="mx-auto max-w-5xl px-4 pb-8 sm:px-6">
         <p className="text-xs text-slate-400">
-          Experiment 1 — Post composer &amp; draft management — Full Stack-II
+          Experiments 1 &amp; 2 — Post composer, drafts &amp; Redux state — Full Stack-II
         </p>
       </footer>
     </div>

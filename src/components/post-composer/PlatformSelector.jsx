@@ -1,4 +1,9 @@
-import { PLATFORM_LIST } from '../../config/platforms';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  platformSelected,
+  selectAllPlatforms,
+  selectSelectedPlatformId,
+} from '../../store/platformsSlice';
 
 /**
  * Native radio inputs are used rather than styled buttons because the browser
@@ -47,19 +52,29 @@ function PlatformOption({ platform, isSelected, onSelect }) {
   );
 }
 
-export default function PlatformSelector({ selectedPlatformId, onSelectPlatform }) {
+/**
+ * Takes no props at all. It reads the platform list and the current selection
+ * straight from the store and dispatches its own action, so nothing has to be
+ * threaded down from a parent — the clearest example in this codebase of what
+ * centralized state removes.
+ */
+export default function PlatformSelector() {
+  const dispatch = useDispatch();
+  const platforms = useSelector(selectAllPlatforms);
+  const selectedPlatformId = useSelector(selectSelectedPlatformId);
+
   return (
     <fieldset className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <legend className="px-1 text-sm font-semibold text-slate-900">Platform</legend>
       <p className="mb-3 text-xs text-slate-500">Each platform applies its own character limit.</p>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1">
-        {PLATFORM_LIST.map((platform) => (
+        {platforms.map((platform) => (
           <PlatformOption
             key={platform.id}
             platform={platform}
             isSelected={platform.id === selectedPlatformId}
-            onSelect={onSelectPlatform}
+            onSelect={(platformId) => dispatch(platformSelected(platformId))}
           />
         ))}
       </div>

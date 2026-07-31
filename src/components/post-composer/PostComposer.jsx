@@ -17,29 +17,24 @@ const VALIDATION_ID = 'post-validation-message';
 const SAVED_INDICATOR_MS = 2500;
 
 /**
- * Owns the composer's own state (content, platform, publishing). Draft state
- * lives above this component so that typing here never re-renders the drafts
- * list — see ComposerWorkspace.
+ * Takes no props. Everything it needs comes from `usePostComposer`, which reads
+ * the store and keeps only the post content in local state.
  */
-export default function PostComposer({
-  initialDraft = null,
-  editingDraftId = null,
-  isSavingDraft = false,
-  onSaveDraft,
-  onStopEditing,
-  onPublished,
-}) {
+export default function PostComposer() {
   const {
     platform,
     content,
     setContent,
-    selectPlatform,
     validation,
+    editingDraftId,
+    isSavingDraft,
+    saveCurrentDraft,
+    stopEditing,
     publishStatus,
     lastPublishedPost,
     publish,
     dismissSuccessNotice,
-  } = usePostComposer(initialDraft);
+  } = usePostComposer();
 
   const [justSaved, setJustSaved] = useState(false);
   const savedTimerRef = useRef(null);
@@ -57,7 +52,7 @@ export default function PostComposer({
   const canSaveDraft = !validation.isEmpty;
 
   const handleSaveDraft = async () => {
-    const saved = await onSaveDraft({ content, platformId: platform.id });
+    const saved = await saveCurrentDraft();
     if (!saved) return;
 
     setJustSaved(true);
@@ -65,14 +60,9 @@ export default function PostComposer({
     savedTimerRef.current = setTimeout(() => setJustSaved(false), SAVED_INDICATOR_MS);
   };
 
-  const handlePublish = () => {
-    publish();
-    onPublished?.();
-  };
-
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[18rem_1fr] lg:items-start">
-      <PlatformSelector selectedPlatformId={platform.id} onSelectPlatform={selectPlatform} />
+      <PlatformSelector />
 
       <section
         aria-label="Post composer"
@@ -85,7 +75,7 @@ export default function PostComposer({
               <p className="flex-1">Editing a saved draft.</p>
               <button
                 type="button"
-                onClick={onStopEditing}
+                onClick={stopEditing}
                 className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200 focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:outline-none"
               >
                 <X aria-hidden="true" className="size-3.5" />
@@ -116,7 +106,7 @@ export default function PostComposer({
                 platform={platform}
                 canPublish={validation.isValid}
                 publishStatus={publishStatus}
-                onPublish={handlePublish}
+                onPublish={publish}
               />
               <SaveDraftButton
                 isEditing={isEditingDraft}

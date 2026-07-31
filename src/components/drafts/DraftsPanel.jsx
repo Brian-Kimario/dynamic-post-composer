@@ -1,7 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { AlertCircle, FileText, Loader2, RotateCw, Search, X } from 'lucide-react';
-import { DRAFTS_STATUS } from '../../hooks/useDrafts';
-import { PLATFORM_LIST } from '../../config/platforms';
+import {
+  actionErrorDismissed,
+  fetchDrafts,
+  selectAllDrafts,
+  selectDraftsActionError,
+  selectDraftsError,
+  selectDraftsStatus,
+  REQUEST_STATUS,
+} from '../../store/draftsSlice';
+import { selectAllPlatforms } from '../../store/platformsSlice';
 import DraftListItem from './DraftListItem';
 
 /** Rendered in pages so a large draft list never mounts hundreds of rows at once. */
@@ -23,39 +32,43 @@ function DraftsEmptyState({ hasDrafts }) {
   );
 }
 
-export default function DraftsPanel({
-  status,
-  drafts,
-  error,
-  actionError,
-  pendingIds,
-  activeDraftId,
-  onEditDraft,
-  onDeleteDraft,
-  onReload,
-  onDismissActionError,
-}) {
+export default function DraftsPanel() {
+  const dispatch = useDispatch();
+
+  const drafts = useSelector(selectAllDrafts);
+  const status = useSelector(selectDraftsStatus);
+  const error = useSelector(selectDraftsError);
+  const actionError = useSelector(selectDraftsActionError);
+  const platforms = useSelector(selectAllPlatforms);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [platformFilter, setPlatformFilter] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
+  // The panel owns loading its own data, so no parent has to orchestrate it.
+  useEffect(() => {
+    dispatch(fetchDrafts());
+  }, [dispatch]);
+
   /**
-   * Derived from drafts + filters rather than stored in state, the same rule
-   * the composer follows. Memoised because filtering and sorting the whole list
-   * would otherwise re-run on unrelated re-renders, such as a row's delete
-   * confirmation toggling.
+   * Search and filter are view concerns, so they stay in local state. Only the
+   * derived list is memoised — the entity adapter's `sortComparer` already keeps
+   * `ids` newest-first, so no sorting is needed here any more.
+   *
+   * Note this maps to ids: rows look their own entity up in the store, so the
+   * list passes identifiers rather than objects.
    */
-  const filteredDrafts = useMemo(() => {
+  const filteredDraftIds = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
 
     return drafts
       .filter((draft) => platformFilter === 'all' || draft.platformId === platformFilter)
       .filter((draft) => query === '' || draft.content.toLowerCase().includes(query))
-      .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      .map((draft) => draft.id);
   }, [drafts, platformFilter, searchTerm]);
 
-  const visibleDrafts = filteredDrafts.slice(0, visibleCount);
-  const hasMore = filteredDrafts.length > visibleCount;
+  const visibleIds = filteredDraftIds.slice(0, visibleCount);
+  const hasMore = filteredDraftIds.length > visibleCount;
 
   return (
     <section
@@ -65,14 +78,14 @@ export default function DraftsPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-slate-900">
           Saved drafts
-          {status === DRAFTS_STATUS.READY && (
+          {status === REQUEST_STATUS.READY && (
             <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
               {drafts.length}
             </span>
           )}
         </h2>
 
-        {status === DRAFTS_STATUS.READY && drafts.length > 0 && (
+        {status === REQUEST_STATUS.READY && drafts.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <Search
@@ -102,7 +115,7 @@ export default function DraftsPanel({
               className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-900 transition outline-none focus-visible:border-slate-900 focus-visible:ring-2 focus-visible:ring-slate-900/20"
             >
               <option value="all">All platforms</option>
-              {PLATFORM_LIST.map((platform) => (
+              {platforms.map((platform) => (
                 <option key={platform.id} value={platform.id}>
                   {platform.name}
                 </option>
@@ -123,7 +136,7 @@ export default function DraftsPanel({
           <p className="flex-1">{actionError}</p>
           <button
             type="button"
-            onClick={onDismissActionError}
+            onClick={() => dispatch(actionErrorDismissed())}
             aria-label="Dismiss error"
             className="-m-1 rounded-md p-1 text-red-700 transition hover:bg-red-100 focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:outline-none"
           >
@@ -133,14 +146,14 @@ export default function DraftsPanel({
       )}
 
       <div className="mt-4">
-        {status === DRAFTS_STATUS.LOADING && (
+        {status === REQUEST_STATUS.LOADING && (
           <p className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
             <Loader2 aria-hidden="true" className="size-4 animate-spin" />
             Loading drafts…
           </p>
         )}
 
-        {status === DRAFTS_STATUS.ERROR && (
+        {status === REQUEST_STATUS.ERROR && (
           <div
             role="alert"
             className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-4 text-sm text-red-900"
@@ -151,7 +164,7 @@ export default function DraftsPanel({
             </p>
             <button
               type="button"
-              onClick={onReload}
+              onClick={() => dispatch(fetchDrafts())}
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               <RotateCw aria-hidden="true" className="size-3.5" />
@@ -160,21 +173,14 @@ export default function DraftsPanel({
           </div>
         )}
 
-        {status === DRAFTS_STATUS.READY &&
-          (filteredDrafts.length === 0 ? (
+        {status === REQUEST_STATUS.READY &&
+          (filteredDraftIds.length === 0 ? (
             <DraftsEmptyState hasDrafts={drafts.length > 0} />
           ) : (
             <>
               <ul className="flex flex-col gap-2.5">
-                {visibleDrafts.map((draft) => (
-                  <DraftListItem
-                    key={draft.id}
-                    draft={draft}
-                    isActive={draft.id === activeDraftId}
-                    isPending={pendingIds.includes(draft.id)}
-                    onEdit={onEditDraft}
-                    onDelete={onDeleteDraft}
-                  />
+                {visibleIds.map((draftId) => (
+                  <DraftListItem key={draftId} draftId={draftId} />
                 ))}
               </ul>
 
@@ -184,7 +190,7 @@ export default function DraftsPanel({
                   onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
                   className="mt-3 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 focus-visible:outline-none"
                 >
-                  Show more ({filteredDrafts.length - visibleCount} remaining)
+                  Show more ({filteredDraftIds.length - visibleCount} remaining)
                 </button>
               )}
             </>
