@@ -1,5 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
-import authReducer from './authSlice';
+import { setSessionRefreshHandler } from '../services/apiClient';
+import { decodeToken } from '../services/jwt';
+import authReducer, { sessionRenewed } from './authSlice';
 import composerReducer from './composerSlice';
 import draftsReducer from './draftsSlice';
 import filtersReducer from './filtersSlice';
@@ -27,4 +29,20 @@ export const store = configureStore({
     composer: composerReducer,
     filters: filtersReducer,
   },
+});
+
+/**
+ * The one place the services layer is allowed to reach the store.
+ *
+ * A silent token refresh happens inside `apiClient`, far from any component and
+ * without a dispatch of its own — but the store is still holding the token that
+ * was just replaced. Rather than let `apiClient` import the store (which would
+ * make the transport layer depend on Redux, and create an import cycle through
+ * the slices), it exposes a handler and this file registers one.
+ *
+ * The token is decoded rather than re-verified: it was signed seconds ago by the
+ * refresh call that produced it, and verification already happened there.
+ */
+setSessionRefreshHandler(({ accessToken }) => {
+  store.dispatch(sessionRenewed({ token: accessToken, claims: decodeToken(accessToken).payload }));
 });

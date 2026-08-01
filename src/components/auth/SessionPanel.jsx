@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { KeyRound, ShieldCheck } from 'lucide-react';
-import { selectAccessToken, selectTokenClaims } from '../../store/authSlice';
+import { KeyRound, RefreshCw, ShieldCheck } from 'lucide-react';
+import { selectAccessToken, selectRenewalCount, selectTokenClaims } from '../../store/authSlice';
 import { millisecondsUntilExpiry } from '../../services/jwt';
 import { tokenStorage } from '../../services/tokenStorage';
 
@@ -35,6 +35,7 @@ function formatClaimValue(key, value) {
 export default function SessionPanel() {
   const token = useSelector(selectAccessToken);
   const claims = useSelector(selectTokenClaims);
+  const renewalCount = useSelector(selectRenewalCount);
 
   // The counter exists only to re-render once a second. Time remaining is
   // derived from the token on each render rather than copied into state, so it
@@ -63,13 +64,22 @@ export default function SessionPanel() {
           Session
         </h2>
 
-        <p
-          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            isExpired ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'
-          }`}
-        >
-          {isExpired ? 'Token expired' : `Expires in ${formatCountdown(remaining)}`}
-        </p>
+        <div className="flex items-center gap-2">
+          {renewalCount > 0 && (
+            <p className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+              <RefreshCw aria-hidden="true" className="size-3" />
+              Renewed {renewalCount}×
+            </p>
+          )}
+
+          <p
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              isExpired ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {isExpired ? 'Renews on next request' : `Expires in ${formatCountdown(remaining)}`}
+          </p>
+        </div>
       </div>
 
       <p className="mt-3 text-xs text-slate-500">
@@ -79,7 +89,11 @@ export default function SessionPanel() {
         </code>{' '}
         and attached to every request as{' '}
         <code className="text-slate-700">Authorization: Bearer …</code>
-        {isExpired && ' The next request will be rejected and end the session.'}
+        {/* Expiry stopped being a dead end in Assignment 5: the access token is
+            short-lived on purpose, and the refresh token quietly replaces it. */}
+        {isExpired
+          ? ' This access token has expired; the next request will refresh it and retry itself.'
+          : ' It is renewed automatically from the refresh token when it expires.'}
       </p>
 
       {/* Colour-coded the way jwt.io renders a token, because "three segments
