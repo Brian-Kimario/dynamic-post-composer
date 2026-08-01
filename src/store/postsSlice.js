@@ -1,5 +1,6 @@
 import { createAsyncThunk, createEntityAdapter, createSlice } from '@reduxjs/toolkit';
 import { postsApi } from '../services/postsApi';
+import { isSessionEnded } from './authSlice';
 import { REQUEST_STATUS } from './draftsSlice';
 
 /**
@@ -79,6 +80,15 @@ const postsSlice = createSlice({
       .addCase(deletePost.rejected, (state, action) => {
         state.pendingIds = state.pendingIds.filter((id) => id !== action.meta.arg);
         state.actionError = action.error.message;
+      })
+
+      // Same reasoning as the drafts slice: a session ending empties the cache.
+      .addMatcher(isSessionEnded, (state) => {
+        postsAdapter.removeAll(state);
+        state.status = REQUEST_STATUS.LOADING;
+        state.error = null;
+        state.actionError = null;
+        state.pendingIds = [];
       });
   },
 });
