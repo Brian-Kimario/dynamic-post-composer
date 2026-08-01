@@ -9,8 +9,10 @@ Drafts can be saved, listed, edited and deleted, and they persist in the browser
 Application state is centralized in a Redux Toolkit store with normalized entity data, and access to
 it is gated behind a JWT-based login with stateless session handling.
 
+Access is role-based: what a user can see, open and do is determined by the role in their token.
+
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2 and 1.3.1**.
+**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1 and 1.3.2**.
 
 ---
 
@@ -56,18 +58,29 @@ Covers the login interface, credential validation against a mock directory, real
 generation and verification, secure token storage, attaching the token to every request, and
 decoding it to recover the signed-in user.
 
+### Experiment 1.3.2 — RBAC & Route Protection
+
+**Aim:** To implement role-based access control and secure application routes based on user
+permissions.
+
+Covers the role/permission model, protected routes with React Router, redirecting unauthorized
+users, permission-driven UI, and enforcement in the API layer so a hidden button is not the only
+thing standing between a user and an action they may not take.
+
 ### Scope
 
-Authentication arrived in 1.3.1, but there is still no real backend and no social media integration
-— publishing is simulated in the browser, everything is stored locally, and the "auth server" is a
-module (`services/authApi.js`) rather than a remote host. The tokens themselves are not simulated:
-they are real signed JWTs.
+There is still no real backend and no social media integration — publishing is simulated in the
+browser, everything is stored locally, and the "auth server" is a module (`services/authApi.js`)
+rather than a remote host. The tokens are not simulated: they are real signed JWTs.
 
-**Role-based access control, protected routes and token refresh are deliberately out of scope here.**
-They are Experiment 3.2 and its Assignment 5 in the course material. Roles are already issued inside
-the token so that experiment adds enforcement rather than reissuing identity. Retry logic and toast
-notifications (Experiment 1, Assignment 4) remain unimplemented. The architecture is arranged so all
-of those can be added without restructuring what exists.
+**Token refresh remains out of scope** — it is Assignment 5 of the course's Experiment 3, and the
+single branch it would replace is marked in `services/apiClient.js`. Retry logic and toast
+notifications (Experiment 1, Assignment 4) are likewise still unimplemented.
+
+The honest limit of the RBAC work: the checks are real and enforced at the API layer, but that layer
+runs in the browser, so a determined user can still reach the data. What is demonstrated is the
+_mechanism_ and its layering, not a boundary that would survive an adversary — see the caveat at the
+end of the Authorization section.
 
 ---
 
@@ -128,6 +141,19 @@ of those can be added without restructuring what exists.
 - Records are stamped with the author taken from the verified token, never from the caller
 - Session panel showing the live token, its three segments, decoded claims and expiry countdown
 
+### RBAC & route protection (1.3.2)
+
+- Three roles — admin, editor, viewer — defined as permission sets in one config file
+- Multi-page app with React Router: compose, library, insights, admin, session
+- Route guards as layout routes, so a rule covers a whole branch of the route tree
+- Guarded URLs are unreachable by typing them, not merely unlinked
+- Unauthorized users get a 403 page naming the role and the missing permission, not a redirect loop
+- Navigation, row actions and empty-state copy all adapt to the signed-in role
+- `/` resolves per role, so a read-only user is never landed on a page they cannot open
+- Redirect back to the originally requested page after signing in, when the role permits it
+- Every API operation declares a required permission and refuses without it — 403, distinct from 401
+- A refused action leaves the session intact; only an invalid token ends it
+
 ---
 
 ## Tech Stack
@@ -144,6 +170,7 @@ of those can be added without restructuring what exists.
 | **React-Redux**    | `useSelector` / `useDispatch` bindings between the store and components.                                |
 | **Reselect**       | Memoized selectors via `createSelector` — ships inside Redux Toolkit, so it is not a separate install.  |
 | **Web Crypto API** | HMAC-SHA256 signing and verification for JWTs — a browser built-in, not a dependency (added in 1.3.1).  |
+| **React Router 8** | Client-side routing, and the layer route protection is expressed in (added in 1.3.2).                   |
 
 Up to Experiment 1.1.2 the app used only `useState` and `useReducer`, which was the right call for
 two state owners that barely interacted. Redux Toolkit was introduced in 1.2.1 once three domains
@@ -155,6 +182,12 @@ the parts the experiment is about, and `crypto.subtle` already implements the on
 Axios was also skipped: there is no HTTP layer to configure yet, so `services/apiClient.js`
 implements the interceptor _pattern_ over the existing mock transport instead of adding a client that
 would have nothing to talk to.
+
+Experiment 1.3.2 added React Router, and it is the first dependency in this project that was not
+optional. Route protection is the experiment's subject, and a route is the unit being protected —
+hand-rolling a router to demonstrate guarding routes would have meant building the thing the lesson
+assumes. Note the package: since v7 everything ships from `react-router`, and `react-router-dom` is
+a legacy re-export that stops at v7.
 
 ---
 
@@ -256,9 +289,11 @@ src/
 │   ├── auth/
 │   │   ├── LoginScreen.jsx           Credentials form + demo accounts
 │   │   ├── AccountBadge.jsx          Signed-in user and sign out (header)
+│   │   ├── Can.jsx                   Renders children only with a permission
 │   │   └── SessionPanel.jsx          Live token, decoded claims, expiry countdown
-│   ├── workspace/
-│   │   └── ComposerWorkspace.jsx     Layout only
+│   ├── layout/
+│   │   ├── AppLayout.jsx             Header, nav and footer around an Outlet
+│   │   └── PrimaryNav.jsx            Navigation, filtered by permission
 │   ├── post-composer/
 │   │   ├── PostComposer.jsx          Owns post content; reads the rest from the store
 │   │   ├── PlatformSelector.jsx      Platform radio group (connected, no props)
@@ -276,10 +311,27 @@ src/
 │   │   └── PublishedPostItem.jsx     One row — takes an id, memoised
 │   └── insights/
 │       └── ContentInsightsPanel.jsx  Derived analytics from memoized selectors
+├── pages/
+│   ├── LoginPage.jsx                 Public route; redirects a signed-in user away
+│   ├── ComposePage.jsx               Composer (draft:write)
+│   ├── LibraryPage.jsx               Drafts + published posts (content:read)
+│   ├── InsightsPage.jsx              Derived analytics (insights:view)
+│   ├── AdminPage.jsx                 Permission matrix (workspace:admin)
+│   ├── SessionPage.jsx               The user's own token (any role)
+│   ├── ForbiddenPage.jsx             403 — names the role and missing permission
+│   └── NotFoundPage.jsx              404 — deliberately distinct from 403
+├── routes/
+│   ├── router.jsx                    Route table; also the access-control map
+│   ├── RequireAuth.jsx               Authentication guard (layout route)
+│   ├── RequirePermission.jsx         Authorization guard (layout route)
+│   ├── LandingRedirect.jsx           `/` resolves to a route this role can open
+│   └── navigation.js                 Nav items, landing path, path permission check
 ├── config/
-│   └── platforms.js                  Platform rules and warning threshold
+│   ├── platforms.js                  Platform rules and warning threshold
+│   └── permissions.js                Roles, permissions and the grant table
 ├── hooks/
-│   └── usePostComposer.js            Composer logic on top of the store
+│   ├── usePostComposer.js            Composer logic on top of the store
+│   └── usePermission.js              The one expression components use to ask
 ├── services/
 │   ├── jwt.js                        Sign, decode and verify HS256 tokens
 │   ├── authApi.js                    Mock auth server — user directory + secret
@@ -291,8 +343,8 @@ src/
 ├── utils/
 │   ├── postValidation.js             Pure validation logic
 │   └── draftFormatting.js            Excerpts and relative timestamps
-├── App.jsx                           Application shell + session gate
-├── main.jsx                          React entry point + Provider
+├── App.jsx                           Root route: restores the session, then Outlet
+├── main.jsx                          React entry point + Provider + RouterProvider
 └── index.css                         Tailwind import and design tokens
 ```
 
@@ -568,6 +620,107 @@ server's own check is.
 
 ---
 
+## Authorization & Routing Model
+
+### Roles, permissions, and the indirection between them
+
+```
+user  →  role (a claim in the token)  →  permissions  →  guards, UI, API checks
+```
+
+The middle arrow is the whole idea. `config/permissions.js` maps each role to an explicit set of
+permission strings, and **nothing else in the codebase compares a role by name** — components ask
+`usePermission(PERMISSION.DRAFT_DELETE)`, guards take a permission, and API operations declare one.
+Adding a fourth role is one entry in that file; granting an existing role one more ability is one
+string.
+
+| Permission        | admin | editor | viewer |
+| ----------------- | :---: | :----: | :----: |
+| `content:read`    |   ✓   |   ✓    |   ✓    |
+| `draft:write`     |   ✓   |   ✓    |        |
+| `draft:delete`    |   ✓   |   ✓    |        |
+| `post:publish`    |   ✓   |   ✓    |        |
+| `insights:view`   |   ✓   |   ✓    |        |
+| `post:delete`     |   ✓   |        |        |
+| `workspace:admin` |   ✓   |        |        |
+
+Editor is deliberately **not** a smaller admin: it may publish but not unpublish. Roles are written
+out in full rather than inheriting from one another, which is longer but allows exactly this kind of
+divergence — hierarchies quietly forbid it.
+
+An unknown role resolves to _no_ permissions rather than to an error. That is the fail-closed
+choice: an old token carrying a role this build has never heard of grants nothing.
+
+### Guards are routes, not checks inside pages
+
+```
+App                          holds the app until the stored token is verified
+└── /login                   public
+└── RequireAuth              everything below needs a session
+    └── AppLayout            header, nav, footer
+        ├── index            → the first route this role can open
+        ├── RequirePermission draft:write      → /compose
+        ├── RequirePermission content:read     → /library
+        ├── RequirePermission insights:view    → /insights
+        ├── RequirePermission workspace:admin  → /admin
+        ├── /session         any signed-in role
+        ├── /403             forbidden
+        └── *                not found
+```
+
+Both guards are layout routes that render `<Outlet />` or a `<Navigate />`. Writing them as wrappers
+around a branch rather than as a check inside each page means a rule is stated once and covers
+everything beneath it — and a route added under an existing guard inherits its protection. The
+failure mode this design targets is the new page that quietly ships unprotected.
+
+Three redirect decisions are worth spelling out, because each is a place the obvious choice is wrong:
+
+1. **Anonymous → `/login`, carrying the attempted path.** `RequireAuth` puts the current location in
+   navigation state and `LoginPage` sends the user back there afterwards — but only if their role can
+   open it, otherwise signing in would deliver them straight into a 403.
+2. **Denied → `/403`, never `/login`.** They are signed in; signing in again changes nothing.
+   Bouncing them to the login screen is the 401/403 confusion in navigation form, and produces a loop
+   for anyone who follows a link they cannot open.
+3. **`/` is role-dependent.** A fixed default would greet read-only users with a 403 on the app's
+   front door, so `/` resolves to the first destination the role can actually reach.
+
+All three use `replace`, so guarded URLs never land in history and Back does not bounce through them.
+
+### Two layers, and why both
+
+The same question is asked in two places, on purpose:
+
+| Layer     | Where                                            | What it is for                     |
+| --------- | ------------------------------------------------ | ---------------------------------- |
+| Interface | `Can`, `usePermission`, nav filtering            | Not offering what would be refused |
+| API       | `sendRequest` → `authorize()` before the handler | Actually refusing it               |
+
+Hiding a button is a courtesy, not a control. Every operation in `localCollection.js` declares the
+permission it requires, and the request pipeline checks the role **from the verified token** before
+the handler runs — so an action reached by any other route than the UI gets the same answer. This was
+verified rather than assumed: dispatching `deleteDraft` straight from the console as a viewer, with
+no delete button anywhere on screen, was refused with a 403 and left storage untouched.
+
+### 401 and 403 are different answers
+
+A refused _permission_ leaves the session completely intact — the user is still who they were, they
+simply may not do that. Only an invalid or expired _token_ ends a session. `authSlice` matches on
+`UnauthorizedError` alone for exactly this reason; `ForbiddenError` surfaces as an ordinary
+dismissible error in the panel that attempted the action. Collapsing the two would sign users out for
+clicking something their role does not allow.
+
+### The honest limit
+
+The API-layer check is real and it is enforced before any data is touched — but that layer is a
+module in the same bundle as everything else. A user with DevTools can call it directly, or edit
+their token's `role` claim and re-sign it with the secret sitting in `authApi.js`. **This
+demonstrates the mechanism and its layering, not a boundary that survives an adversary.** The
+arrangement is what transfers: when `authApi.js` and the permission check move server-side, the
+guards, the `Can` components and the permission table stay exactly as they are, and the check that
+was advisory becomes authoritative.
+
+---
+
 ## Validation Model
 
 `validatePost(content, platform)` is a pure function: same inputs, same output, no React involved.
@@ -659,6 +812,16 @@ reads from the returned object, additions should be additive rather than changes
   session expiry is handled once instead of in every thunk.
 - **Web APIs from React** — `crypto.subtle` and `sessionStorage` are wrapped in service modules, so
   components never touch a browser API directly.
+- **Client-side routing** — `createBrowserRouter` with nested routes; pages render into an
+  `<Outlet />` supplied by a shared layout.
+- **Layout routes as guards** — `RequireAuth` and `RequirePermission` render `<Outlet />` or a
+  `<Navigate />`, so one component protects a whole branch of the tree.
+- **Declarative redirects** — `<Navigate replace />` returned from render, rather than an effect
+  calling `navigate()` after the fact.
+- **Navigation state** — the attempted location travels in `state` through the login redirect, which
+  is what makes "send them back where they were going" possible.
+- **Render props for styling state** — `NavLink`'s `className` callback receives `isActive`, so no
+  component compares the current path itself.
 
 ---
 
@@ -746,6 +909,33 @@ holds the resulting token instead.
 users out of states they cannot use. The check that matters is the one `apiClient` performs before
 running a handler — and in a real system, the one the server performs. Both layers exist here on
 purpose, which is the defence-in-depth idea applied rather than described.
+
+**Permissions, never roles, at the point of use.** Components ask "may this user delete a draft?",
+not "is this user an admin?". Role checks scattered through a UI are the authorization equivalent of
+`if (platform === 'x')` — they work until the day a role's meaning changes, and then they have to be
+found. The name of a role appears in exactly two files: the permission table and the admin page that
+displays it.
+
+**Roles are explicit sets, not a hierarchy.** Editor is not "admin minus a few things" — it publishes
+but cannot unpublish, which a strict hierarchy could not express. Listing each role's permissions in
+full costs a few lines and buys the ability to model roles that genuinely differ.
+
+**Guards wrap branches of the route tree, not pages.** A check inside a page is a check somebody can
+forget to add to the next page. As layout routes, `RequireAuth` and `RequirePermission` protect
+everything nested under them by construction, and the route table doubles as a readable map of who
+can reach what.
+
+**403 and 401 are kept apart everywhere.** Different error classes, different destinations, different
+consequences for the session. It would have been less code to treat every rejection as "signed out",
+and it would have logged users out for clicking a button their role does not allow.
+
+**The permission table is rendered, not restated.** The admin page builds its matrix from
+`permissions.js` itself, so documentation of the rules cannot drift from the rules.
+
+**React Router was earned in the same way Redux was.** The project ran as a single page through five
+experiments because it had one screen. Routing arrived when there were genuinely different
+destinations with different access rules — and because "protect a route" is not a thing you can
+demonstrate without routes.
 
 ---
 
@@ -921,6 +1111,41 @@ The expired-token case used a genuinely signed token with `exp` in the past, min
 with the same secret — so it exercised the expiry branch specifically, not the invalid-signature
 branch.
 
+### RBAC & route protection (1.3.2)
+
+Every role was driven through the running app. The bypass cases were run by temporarily exposing the
+store and the delete thunks on `window`, dispatching actions the UI does not offer, and removing the
+instrumentation before committing — the same method used for the render-count measurements in 1.2.2.
+
+| Case                                | Result                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| Anonymous `/`                       | Redirected to `/login`                                                      |
+| Anonymous deep link `/admin`        | `/login`, with `from: /admin` preserved in navigation state                 |
+| Viewer signs in after that redirect | Landed on `/library`, **not** the `/admin` they asked for                   |
+| Viewer nav                          | Library, Session only — Compose, Insights, Admin absent                     |
+| Viewer draft rows                   | All 3 drafts visible, **0** action buttons rendered                         |
+| Viewer types `/compose`             | `/403`, naming role `viewer` and required `draft:write`                     |
+| Viewer types `/admin`               | `/403`, required `workspace:admin`                                          |
+| **Viewer dispatches `deleteDraft`** | **Rejected `ForbiddenError`; 3 drafts before and after, storage untouched** |
+| Viewer after that refusal           | Still authenticated — a 403 does not end the session                        |
+| Editor nav                          | Compose, Library, Insights, Session — Admin absent                          |
+| Editor redirect-back                | Returned to `/library`, the page they were on before signing out            |
+| Editor saves a draft                | Created; stamped `authorId: usr_noah_reyes` from the token                  |
+| Editor deletes that draft           | Fulfilled — 4 → 3, the permission it does hold                              |
+| **Editor dispatches `deletePost`**  | **Rejected `ForbiddenError`; posts 2 → 2, storage untouched**               |
+| Admin nav                           | All five destinations                                                       |
+| Admin library rows                  | Edit, Delete on drafts; Remove on published posts                           |
+| Admin page matrix                   | Matches `permissions.js` exactly, all 7 permissions × 3 roles               |
+| Admin publishes then removes a post | Both fulfilled — the exact action the editor was refused                    |
+| Unknown URL                         | `/does-not-exist` renders 404, not 403                                      |
+| Expired token under routing         | 401 → signed out → `/login` with the expiry notice, both stores cleared     |
+| Console                             | No errors or React warnings                                                 |
+| Lint / build                        | `npm run lint` clean, `npm run build` succeeds                              |
+
+The two bold rows are the point of the experiment. In both, the button for the action was not on
+screen at all, the action was dispatched anyway, and the API layer refused it — which is the
+difference between a hidden control and an enforced permission.
+
 ---
 
 ## Future Experiments
@@ -947,12 +1172,17 @@ The current structure leaves specific places for later work:
   storage; swapping it for HTTP calls needs no component or slice changes, because the thunks
   already model latency and failure. `postValidation.js` is framework-free and can be shared with
   the server so the same rules run in both places.
-- **RBAC and protected routes** (Experiment 3.2) — the `role` claim is already issued and read into
-  `auth.user`. What is missing is a permissions map and route-level guards; the gate in `App.jsx` is
-  the same check a `ProtectedRoute` performs, applied once at the root instead of per route.
-- **Token refresh** (Experiment 3.2, Assignment 5) — `apiClient.js` currently discards a dead token
-  at the one point that detects it. A refresh flow replaces that single branch: request a new access
-  token, then retry the original request.
+- **Token refresh** (Assignment 5) — `apiClient.js` currently discards a dead token at the one point
+  that detects it. A refresh flow replaces that single branch: request a new access token, then retry
+  the original request.
+- **Per-record ownership** — records already carry `authorId` from the token, so a rule like "editors
+  may delete only their own drafts" is a check inside the handler, next to the permission check,
+  rather than a new concept.
+- **Server-enforced permissions** — moving `authorize()` behind a real endpoint changes no component,
+  guard or permission definition; the client-side checks stay as the UX layer they already are.
+- **Route-level data loading** — the router is in data mode, so loaders and `middleware` are
+  available. The panels currently fetch in effects, which is deliberate continuity with 1.2.1 rather
+  than a limitation of the router.
 - **A real auth backend** — deleting `services/authApi.js` and pointing `login` at an endpoint is
   the whole migration. `jwt.js` moves server-side with it; the store, the API client and the UI do
   not change, because none of them ever handled a password or the secret.
