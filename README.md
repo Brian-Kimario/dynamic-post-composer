@@ -11,8 +11,10 @@ it is gated behind a JWT-based login with stateless session handling.
 
 Access is role-based: what a user can see, open and do is determined by the role in their token.
 
+Posts can also be scheduled onto a content calendar and rearranged by dragging.
+
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1 and 1.3.2**.
+**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1, 1.3.2 and 1.4.1**.
 
 ---
 
@@ -66,6 +68,13 @@ permissions.
 Covers the role/permission model, protected routes with React Router, redirecting unauthorized
 users, permission-driven UI, and enforcement in the API layer so a hidden button is not the only
 thing standing between a user and an action they may not take.
+
+### Experiment 1.4.1 — Interactive Calendar
+
+**Aim:** To design and implement an interactive calendar interface for scheduling and managing posts.
+
+Covers temporal data modelling, mapping posts onto month/week/day layouts, click-to-view-and-edit,
+drag-and-drop rescheduling, and keeping the calendar in step with application state.
 
 ### Scope
 
@@ -152,6 +161,19 @@ end of the Authorization section.
 - Refresh tokens are rotated on every renewal
 - Only expiry triggers a refresh — a tampered token or a 403 does not
 - Renewals are visible: the session panel counts them and shows the live token being replaced
+
+### Interactive calendar (1.4.1)
+
+- Month, week and day views over one focused date, so switching views keeps your place
+- Posts scheduled from the composer, alongside publish and save-draft
+- Events mapped onto local days and hour slots, grouped once by a memoized selector
+- Drag an event to another day to move it, keeping its time of day
+- Drag it onto an hour slot to set that hour exactly
+- Optimistic moves: the event lands where you dropped it and rolls back precisely if refused
+- Click an event for a dialog to view it, retype its time, edit its content, or unschedule it
+- Keyboard-reachable rescheduling, since native drag-and-drop is mouse-only
+- Read-only for viewers — chips are not draggable and the dialog says why
+- Overflowing days collapse to "+N more", which opens that day
 
 ### RBAC & route protection (1.3.2)
 
@@ -289,13 +311,15 @@ the alternative, an effect that copies props into state, is a well-known source 
 ```
 src/
 ├── store/
-│   ├── index.js                      configureStore — composes the six slices
+│   ├── index.js                      configureStore — composes the eight slices
 │   ├── authSlice.js                  Session state: status, user, token, claims
 │   ├── platformsSlice.js             Normalized platforms + selected platform
 │   ├── draftsSlice.js                Normalized drafts + async CRUD thunks
 │   ├── postsSlice.js                 Normalized published posts + thunks
+│   ├── scheduleSlice.js              Scheduled posts + optimistic rescheduling
 │   ├── composerSlice.js              UI state: which draft is open, session id
 │   ├── filtersSlice.js               UI state: search, platform filter, paging
+│   ├── calendarSlice.js              UI state: view, focused date, selection, drag
 │   └── selectors.js                  Memoized derived state (createSelector)
 ├── components/
 │   ├── auth/
@@ -303,6 +327,14 @@ src/
 │   │   ├── AccountBadge.jsx          Signed-in user and sign out (header)
 │   │   ├── Can.jsx                   Renders children only with a permission
 │   │   └── SessionPanel.jsx          Live token, decoded claims, expiry countdown
+│   ├── calendar/
+│   │   ├── CalendarToolbar.jsx       Paging, Today, month/week/day switch
+│   │   ├── MonthGrid.jsx             Six weeks derived from the focused date
+│   │   ├── MonthDayCell.jsx          One day — drop target, memoised
+│   │   ├── TimeGrid.jsx              Week and day views: hour rows × day columns
+│   │   ├── TimeSlot.jsx              One hour of one day — drop target, memoised
+│   │   ├── ScheduledPostChip.jsx     A draggable event; opens the dialog on click
+│   │   └── EventDetailPanel.jsx      View, retype the time, edit content, unschedule
 │   ├── layout/
 │   │   ├── AppLayout.jsx             Header, nav and footer around an Outlet
 │   │   └── PrimaryNav.jsx            Navigation, filtered by permission
@@ -326,6 +358,7 @@ src/
 ├── pages/
 │   ├── LoginPage.jsx                 Public route; redirects a signed-in user away
 │   ├── ComposePage.jsx               Composer (draft:write)
+│   ├── CalendarPage.jsx              Content calendar (content:read)
 │   ├── LibraryPage.jsx               Drafts + published posts (content:read)
 │   ├── InsightsPage.jsx              Derived analytics (insights:view)
 │   ├── AdminPage.jsx                 Permission matrix (workspace:admin)
@@ -343,7 +376,8 @@ src/
 │   └── permissions.js                Roles, permissions and the grant table
 ├── hooks/
 │   ├── usePostComposer.js            Composer logic on top of the store
-│   └── usePermission.js              The one expression components use to ask
+│   ├── usePermission.js              The one expression components use to ask
+│   └── useScheduleDropTarget.js      Makes an element accept a dragged event
 ├── services/
 │   ├── jwt.js                        Sign, decode and verify HS256 tokens
 │   ├── authApi.js                    Mock auth server — user directory + secret
@@ -353,6 +387,7 @@ src/
 │   ├── draftsApi.js                  Drafts instance
 │   └── postsApi.js                   Published posts instance
 ├── utils/
+│   ├── calendar.js                   Local-time date arithmetic and Intl formatting
 │   ├── postValidation.js             Pure validation logic
 │   └── draftFormatting.js            Excerpts and relative timestamps
 ├── App.jsx                           Root route: restores the session, then Outlet
@@ -800,6 +835,107 @@ was advisory becomes authoritative.
 
 ---
 
+## Calendar & Scheduling Model
+
+### The record, and why the instant is stored in UTC
+
+```js
+{ id, content, platformId, scheduledFor: '2026-08-04T20:30:00.000Z', authorId, authorName, … }
+```
+
+A scheduled post is a draft plus one field. `scheduledFor` is a UTC ISO string — an **instant**, not
+a wall-clock time. "9am" alone is ambiguous across zones and across a daylight-saving boundary; an
+instant is not. Everything the user sees is converted to local time on the way out.
+
+That decision creates the trap this whole feature turns on. A post at **2am on 5 August** local
+(UTC+5:30) is stored as `2026-08-04T20:30Z` — its UTC date is the **4th**. So:
+
+```js
+post.scheduledFor.slice(0, 10); // '2026-08-04'  ← the wrong day
+toDateKey(new Date(post.scheduledFor)); // '2026-08-05'  ← the day the user means
+```
+
+`toDateKey` builds `YYYY-MM-DD` from `getFullYear/getMonth/getDate`, never from `toISOString()`.
+The same trap appears again in `<input type="datetime-local">`, which speaks local wall-clock time
+with no zone, so `toDateTimeLocalValue` formats it the same way. Verified in the browser: a post
+scheduled for 2am renders on the 5th, not the 4th.
+
+### Mapping posts onto the time axis
+
+Grouping happens **once**, in a memoized selector:
+
+```js
+selectScheduledPostsByDay; // { '2026-08-05': [post, …], … }
+selectScheduledPostIdsForDay(state, dateKey);
+```
+
+The naive alternative — each cell filtering the full collection for its own date — is O(days ×
+posts), which is 42 passes over the array for one month render. Grouping once is O(posts) and every
+cell then does a key lookup. Cells receive a `dateKey` **string** rather than a `Date` so `memo` can
+actually compare props; a `new Date()` prop would be a fresh reference every render and defeat it.
+
+Reselect 5's default `weakMapMemoize` is what lets one parameterised selector serve all 42 cells —
+a cache-size-1 memoizer would thrash, recomputing on every call with a different key.
+
+### Drag-and-drop
+
+Native HTML5 drag-and-drop, no library. The interaction is three events and a payload:
+
+| Stage       | What happens                                                          |
+| ----------- | --------------------------------------------------------------------- |
+| `dragstart` | the chip writes its id into `dataTransfer`                            |
+| `dragover`  | the target calls `preventDefault()` — this is what marks it droppable |
+| `drop`      | the target reads the id, computes an instant, dispatches a reschedule |
+
+Two details that are easy to get wrong and were both hit here:
+
+1. **`preventDefault()` in `dragover` is the whole thing.** The default action of that event is
+   "reject the drop", so a target without it silently refuses everything — the usual reason a
+   hand-rolled drop zone appears dead.
+2. **`dragleave` fires when the pointer crosses onto a child.** Highlighting naively flickers as the
+   cursor passes over the chips inside a cell, so the handler ignores leaves whose `relatedTarget` is
+   still inside the element.
+
+What a drop _means_ differs by target, and that difference is the only thing the two drop targets do
+not share:
+
+- **A day cell** keeps the time of day. Dragging a 9am post from Tuesday to Thursday means "same
+  slot, different day"; resetting it to midnight would be defensible and infuriating.
+- **An hour slot** sets that hour and zeroes the minutes. The slot you aimed at is the answer, not
+  the slot plus a remembered 47 minutes — and the typed field in the dialog is there for when the
+  minutes matter.
+
+### Optimistic, with a real rollback
+
+A reschedule applies **before** the request settles. This is the one interaction where the latency is
+directly under the user's finger, and an event that visibly snapped back for a third of a second on
+every drop would read as broken.
+
+The pending reducer records where the event came from; the rejected reducer puts it back. Verified by
+dispatching a reschedule as a viewer: the event moved optimistically, the request was refused with
+`ForbiddenError`, and it returned to exactly its original instant with storage untouched.
+
+### Two layers again
+
+Scheduling added one permission, `post:schedule`, granted to admin and editor. Viewers get a calendar
+whose chips are not draggable and whose dialog explains why — and, as everywhere else in this app,
+the API refuses the write independently, so the missing drag handle is a courtesy rather than the
+control.
+
+### No calendar library
+
+FullCalendar is the obvious choice and does far more than this needs. What the brief actually asks
+for is the mapping from records to a temporal layout and the interaction on top of it — which is
+precisely the part a library would do for you, and therefore the part worth writing. `utils/calendar.js`
+is about 200 lines of `Date` arithmetic with `Intl` doing the formatting, which is the genuinely hard
+part and is already in the browser.
+
+Two pieces of that arithmetic are non-obvious: `addDays` uses `setDate` rather than adding
+`n * 86400000`, because milliseconds are wrong across a daylight-saving shift; and `addMonths` clamps
+the day, so a month after 31 January is the end of February rather than spilling into March.
+
+---
+
 ## Validation Model
 
 `validatePost(content, platform)` is a pure function: same inputs, same output, no React involved.
@@ -901,6 +1037,15 @@ reads from the returned object, additions should be additive rather than changes
   is what makes "send them back where they were going" possible.
 - **Render props for styling state** — `NavLink`'s `className` callback receives `isActive`, so no
   component compares the current path itself.
+- **Resetting state with `key`** — the reschedule field is keyed on the event's instant, so a drag
+  that moves the event while its dialog is open remounts the field instead of leaving a stale value.
+  The same technique the composer uses via `sessionId`, and the reason neither needs an effect that
+  copies props into state.
+- **`useStore` for event-time reads** — a drop handler needs the dragged post's current time, which
+  is state read _in an event_ rather than during render. `useSelector` would subscribe all 42 cells
+  to it for no reason.
+- **Native DOM APIs over libraries** — `<dialog showModal>` supplies the focus trap, inert backdrop
+  and Escape-to-close that a hand-rolled overlay has to reimplement badly.
 
 ---
 
@@ -1010,6 +1155,20 @@ and it would have logged users out for clicking a button their role does not all
 
 **The permission table is rendered, not restated.** The admin page builds its matrix from
 `permissions.js` itself, so documentation of the rules cannot drift from the rules.
+
+**Store the instant, derive the day.** `scheduledFor` is UTC; every day, hour and label the user sees
+is computed from it in local time. The reverse — storing what the user typed — would make the same
+post fall on different days for different people and break outright across a daylight-saving
+boundary.
+
+**The calendar is optimistic, the rest of the app is not.** Every other mutation here waits for its
+request. A drag is different: the latency is under the user's finger, and the correct feedback is
+that the thing moved. That buys a rollback path, which is a real cost, and it is worth paying exactly
+once rather than everywhere.
+
+**A calendar library was not earned.** React Router was added because routes are what route
+protection protects. FullCalendar would have supplied precisely the thing 1.4.1 asks the student to
+build — the mapping from records onto a temporal layout, and the interaction on it.
 
 **React Router was earned in the same way Redux was.** The project ran as a single page through five
 experiments because it had one screen. Routing arrived when there were genuinely different
@@ -1246,6 +1405,34 @@ exercised one specific branch rather than "something was wrong with the token".
 The concurrency row is the one worth keeping. It is the difference between a refresh mechanism that
 works in a demo and one that survives a page where several panels load at once.
 
+### Interactive calendar (1.4.1)
+
+Drags were exercised by dispatching real `DragEvent`s carrying a shared `DataTransfer`, which is the
+same sequence a mouse produces — `dragstart` on the chip, `dragover` and `drop` on the target.
+
+| Case                                         | Result                                                                                                     |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Month grid                                   | "August 2026", locale weekday headers, 42 cells                                                            |
+| Schedule from the composer                   | Stored with `authorName` from the token; composer cleared afterwards                                       |
+| Default slot                                 | Tomorrow 09:00                                                                                             |
+| **2am post, UTC+5:30**                       | **Stored `2026-08-04T20:30Z`, rendered on Wed 5 August — the local day**                                   |
+| Drag between month cells                     | Moved 2 → 12 August and **kept 14:00**                                                                     |
+| Highlight on `dragover`                      | Appears on the target, clears on `dragleave`                                                               |
+| Drag abandoned outside a target              | Event stayed where it was                                                                                  |
+| Week view                                    | 24 hour rows, 00–23, event in its hour                                                                     |
+| Drop on an hour slot                         | 2:00 → 16:00 same day, minutes zeroed                                                                      |
+| Typed reschedule in the dialog               | 16:00 → 09:45 next day — **minutes preserved**, the thing a slot drop rounds away                          |
+| Click an event                               | `<dialog>` opens modal (`:modal` true) with content, time and actions                                      |
+| Viewer's calendar                            | 1 event visible, **0 draggable**, dialog explains the restriction                                          |
+| Viewer forcing a drop through the DOM        | Refused before any request; nothing moved                                                                  |
+| **Viewer dispatching a reschedule directly** | **Moved optimistically → `ForbiddenError` → rolled back to the exact original instant, storage untouched** |
+| Dialog open across a sign-out                | Bug found by screenshot, fixed — calendar selection now clears with the session                            |
+| Console                                      | No errors or React warnings                                                                                |
+| Lint / build                                 | `npm run lint` clean, `npm run build` succeeds                                                             |
+
+The 2am row is the one the whole date model turns on, and the rollback row is the one that justifies
+being optimistic at all.
+
 ---
 
 ## Future Experiments
@@ -1286,6 +1473,13 @@ The current structure leaves specific places for later work:
 - **Route-level data loading** — the router is in data mode, so loaders and `middleware` are
   available. The panels currently fetch in effects, which is deliberate continuity with 1.2.1 rather
   than a limitation of the router.
+- **Optimization & testing** (Experiment 4.2) — the calendar is the natural subject: `memo` on cells
+  and chips and the day grouping selector are already in place, so that experiment is about
+  _measuring_ them with the Profiler and covering the drag path with React Testing Library.
+- **Keyboard drag-and-drop** — rescheduling by keyboard currently goes through the dialog's date
+  field. A grab-and-move keyboard mode on the chip itself would put both routes on equal footing.
+- **Publishing a scheduled post when its time arrives** — nothing currently fires at `scheduledFor`;
+  the calendar plans, it does not execute.
 - **A real auth backend** — deleting `services/authApi.js` and pointing `login` at an endpoint is
   the whole migration. `jwt.js` moves server-side with it; the store, the API client and the UI do
   not change, because none of them ever handled a password or the secret.
