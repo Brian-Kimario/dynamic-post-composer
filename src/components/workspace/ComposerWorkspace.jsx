@@ -1,5 +1,6 @@
 import { useSelector } from 'react-redux';
 import { selectComposerSessionId } from '../../store/composerSlice';
+import SessionPanel from '../auth/SessionPanel';
 import ContentInsightsPanel from '../insights/ContentInsightsPanel';
 import DraftsPanel from '../drafts/DraftsPanel';
 import PublishedPostsPanel from '../posts/PublishedPostsPanel';
@@ -22,6 +23,7 @@ export default function ComposerWorkspace() {
       <ContentInsightsPanel />
       <DraftsPanel />
       <PublishedPostsPanel />
+      <SessionPanel />
     </div>
   );
 }
