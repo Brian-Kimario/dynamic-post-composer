@@ -1,3 +1,5 @@
+import { sendRequest } from './apiClient';
+
 /**
  * Builds a mock async CRUD API over a single localStorage key.
  *
@@ -6,12 +8,13 @@
  * method is async and returns a Promise, deliberately mirroring the shape a real
  * HTTP client would have — the calling code is written against an asynchronous
  * contract from day one, so a real backend later replaces only this file.
+ *
+ * Since Experiment 1.3.1 every method is also an *authenticated* request: it
+ * goes through `sendRequest`, which attaches the bearer token and refuses to run
+ * the handler unless that token verifies. The delay moved in there with it, so
+ * latency is simulated where the round trip conceptually happens.
  */
 export function createLocalCollectionApi({ storageKey, label, latencyMs = 350 }) {
-  function delay() {
-    return new Promise((resolve) => setTimeout(resolve, latencyMs));
-  }
-
   /**
    * localStorage throws rather than returning null in several real situations:
    * Safari private mode, disabled site data, and exceeded quota. Every access is
@@ -46,57 +49,62 @@ export function createLocalCollectionApi({ storageKey, label, latencyMs = 350 })
     }
   }
 
+  const request = (config, handler) => sendRequest({ latencyMs, ...config }, handler);
+
   return {
-    async fetchAll() {
-      await delay();
-      return read();
+    fetchAll() {
+      return request({ method: 'GET', url: `/${label}` }, () => read());
     },
 
-    async create(attributes) {
-      await delay();
+    create(attributes) {
+      // The author is taken from the verified token, not from the arguments —
+      // the composer has no way to claim a different identity.
+      return request({ method: 'POST', url: `/${label}` }, (user) => {
+        const now = new Date().toISOString();
+        const record = {
+          id: createId(),
+          ...attributes,
+          authorId: user.id,
+          authorName: user.name,
+          createdAt: now,
+          updatedAt: now,
+        };
 
-      const now = new Date().toISOString();
-      const record = {
-        id: createId(),
-        ...attributes,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      write([record, ...read()]);
-      return record;
+        write([record, ...read()]);
+        return record;
+      });
     },
 
-    async update(id, changes) {
-      await delay();
+    update(id, changes) {
+      return request({ method: 'PATCH', url: `/${label}/${id}` }, () => {
+        const items = read();
+        const index = items.findIndex((item) => item.id === id);
 
-      const items = read();
-      const index = items.findIndex((item) => item.id === id);
+        if (index === -1) {
+          throw new Error('That record no longer exists.');
+        }
 
-      if (index === -1) {
-        throw new Error('That record no longer exists.');
-      }
+        const updated = { ...items[index], ...changes, updatedAt: new Date().toISOString() };
+        const next = [...items];
+        next[index] = updated;
+        write(next);
 
-      const updated = { ...items[index], ...changes, updatedAt: new Date().toISOString() };
-      const next = [...items];
-      next[index] = updated;
-      write(next);
-
-      return updated;
+        return updated;
+      });
     },
 
-    async remove(id) {
-      await delay();
+    remove(id) {
+      return request({ method: 'DELETE', url: `/${label}/${id}` }, () => {
+        const items = read();
+        const next = items.filter((item) => item.id !== id);
 
-      const items = read();
-      const next = items.filter((item) => item.id !== id);
+        if (next.length === items.length) {
+          throw new Error('That record no longer exists.');
+        }
 
-      if (next.length === items.length) {
-        throw new Error('That record no longer exists.');
-      }
-
-      write(next);
-      return id;
+        write(next);
+        return id;
+      });
     },
   };
 }
