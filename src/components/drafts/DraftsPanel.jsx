@@ -24,9 +24,15 @@ import {
   selectVisibleDraftIds,
 } from '../../store/selectors';
 import { selectAllPlatforms } from '../../store/platformsSlice';
+import { PERMISSION } from '../../config/permissions';
+import { usePermission } from '../../hooks/usePermission';
 import DraftListItem from './DraftListItem';
 
 function DraftsEmptyState({ hasDrafts }) {
+  // "Write a post" is not advice a viewer can act on, so the empty state changes
+  // with the role too — conditional rendering is not only about buttons.
+  const canWrite = usePermission(PERMISSION.DRAFT_WRITE);
+
   return (
     <div className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center">
       <FileText aria-hidden="true" className="mx-auto size-6 text-slate-300" />
@@ -34,9 +40,11 @@ function DraftsEmptyState({ hasDrafts }) {
         {hasDrafts ? 'No drafts match your filters' : 'No drafts yet'}
       </p>
       <p className="mt-1 text-xs text-slate-500">
-        {hasDrafts
-          ? 'Try a different search term or platform.'
-          : 'Write a post and choose Save draft to keep it for later.'}
+        {hasDrafts && 'Try a different search term or platform.'}
+        {!hasDrafts &&
+          (canWrite
+            ? 'Write a post and choose Save draft to keep it for later.'
+            : 'Drafts saved by your teammates will appear here.')}
       </p>
     </div>
   );

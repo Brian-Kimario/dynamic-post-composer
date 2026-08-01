@@ -3,7 +3,9 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Loader2, Trash2 } from 'lucide-react';
 import { deletePost, selectIsPostPending, selectPostById } from '../../store/postsSlice';
 import { selectPlatformById } from '../../store/platformsSlice';
+import { PERMISSION } from '../../config/permissions';
 import { buildExcerpt, formatAbsoluteTime, formatRelativeTime } from '../../utils/draftFormatting';
+import Can from '../auth/Can';
 
 /** Same normalized pattern as DraftListItem: takes an id, reads its own entity. */
 function PublishedPostItem({ postId }) {
@@ -52,16 +54,22 @@ function PublishedPostItem({ postId }) {
 
       <div className="mt-3 flex items-center justify-end gap-1">
         {isPending && <Loader2 aria-hidden="true" className="size-4 animate-spin text-slate-400" />}
-        <button
-          type="button"
-          onClick={() => dispatch(deletePost(postId))}
-          disabled={isPending}
-          aria-label={`Remove published post: ${buildExcerpt(post.content, 40)}`}
-          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Trash2 aria-hidden="true" className="size-3.5" />
-          Remove
-        </button>
+
+        {/* Admin only. An editor can publish but not unpublish — the one place
+            the two roles genuinely diverge, rather than editor being a smaller
+            admin. */}
+        <Can permission={PERMISSION.POST_DELETE}>
+          <button
+            type="button"
+            onClick={() => dispatch(deletePost(postId))}
+            disabled={isPending}
+            aria-label={`Remove published post: ${buildExcerpt(post.content, 40)}`}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Trash2 aria-hidden="true" className="size-3.5" />
+            Remove
+          </button>
+        </Can>
       </div>
     </li>
   );

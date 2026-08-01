@@ -1,11 +1,14 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router';
 import { Loader2, Pencil, Trash2 } from 'lucide-react';
 import { deleteDraft, selectDraftById, selectIsDraftPending } from '../../store/draftsSlice';
 import { draftOpened, selectEditingDraftId } from '../../store/composerSlice';
 import { selectPlatformById } from '../../store/platformsSlice';
+import { PERMISSION } from '../../config/permissions';
 import { buildExcerpt, formatAbsoluteTime, formatRelativeTime } from '../../utils/draftFormatting';
 import { countCharacters } from '../../utils/postValidation';
+import Can from '../auth/Can';
 
 /**
  * Takes only an id and looks its own data up in the normalized store.
@@ -18,6 +21,7 @@ import { countCharacters } from '../../utils/postValidation';
  */
 function DraftListItem({ draftId }) {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
 
   const draft = useSelector((state) => selectDraftById(state, draftId));
   const isPending = useSelector((state) => selectIsDraftPending(state, draftId));
@@ -34,6 +38,14 @@ function DraftListItem({ draftId }) {
   useEffect(() => {
     return () => clearTimeout(confirmTimerRef.current);
   }, []);
+
+  // Editing now spans two routes: bind the composer to this draft, then go to
+  // the page that renders it. The dispatch has to happen first — `ComposePage`
+  // reads `editingDraftId` as its initial state on mount.
+  const handleEditClick = () => {
+    dispatch(draftOpened(draftId));
+    navigate('/compose');
+  };
 
   const handleDeleteClick = () => {
     if (isConfirmingDelete) {
@@ -103,37 +115,44 @@ function DraftListItem({ draftId }) {
             <Loader2 aria-hidden="true" className="size-4 animate-spin text-slate-400" />
           )}
 
-          <button
-            type="button"
-            onClick={() => dispatch(draftOpened(draftId))}
-            disabled={isPending}
-            // The accessible name includes the excerpt so a screen reader user
-            // moving between rows can tell which draft each button belongs to.
-            aria-label={`Edit draft: ${buildExcerpt(draft.content, 40)}`}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Pencil aria-hidden="true" className="size-3.5" />
-            Edit
-          </button>
+          {/* A viewer sees the draft and neither button. The API refuses both
+              actions independently, so this only removes controls that would
+              have failed. */}
+          <Can permission={PERMISSION.DRAFT_WRITE}>
+            <button
+              type="button"
+              onClick={handleEditClick}
+              disabled={isPending}
+              // The accessible name includes the excerpt so a screen reader user
+              // moving between rows can tell which draft each button belongs to.
+              aria-label={`Edit draft: ${buildExcerpt(draft.content, 40)}`}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Pencil aria-hidden="true" className="size-3.5" />
+              Edit
+            </button>
+          </Can>
 
-          <button
-            type="button"
-            onClick={handleDeleteClick}
-            disabled={isPending}
-            aria-label={
-              isConfirmingDelete
-                ? `Confirm deletion of draft: ${buildExcerpt(draft.content, 40)}`
-                : `Delete draft: ${buildExcerpt(draft.content, 40)}`
-            }
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
-              isConfirmingDelete
-                ? 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600'
-                : 'text-red-700 hover:bg-red-50 focus-visible:ring-red-600'
-            }`}
-          >
-            <Trash2 aria-hidden="true" className="size-3.5" />
-            {isConfirmingDelete ? 'Confirm' : 'Delete'}
-          </button>
+          <Can permission={PERMISSION.DRAFT_DELETE}>
+            <button
+              type="button"
+              onClick={handleDeleteClick}
+              disabled={isPending}
+              aria-label={
+                isConfirmingDelete
+                  ? `Confirm deletion of draft: ${buildExcerpt(draft.content, 40)}`
+                  : `Delete draft: ${buildExcerpt(draft.content, 40)}`
+              }
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
+                isConfirmingDelete
+                  ? 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600'
+                  : 'text-red-700 hover:bg-red-50 focus-visible:ring-red-600'
+              }`}
+            >
+              <Trash2 aria-hidden="true" className="size-3.5" />
+              {isConfirmingDelete ? 'Confirm' : 'Delete'}
+            </button>
+          </Can>
         </div>
       </div>
     </li>
