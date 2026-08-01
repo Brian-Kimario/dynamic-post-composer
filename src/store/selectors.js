@@ -3,7 +3,9 @@ import { selectAllDrafts } from './draftsSlice';
 import { selectAllPosts } from './postsSlice';
 import { selectAllPlatforms, selectPlatformEntities } from './platformsSlice';
 import { selectPlatformFilter, selectSearchTerm, selectVisibleCount } from './filtersSlice';
+import { selectAllScheduledPosts } from './scheduleSlice';
 import { countCharacters } from '../utils/postValidation';
+import { toDateKey } from '../utils/calendar';
 
 /**
  * Derived state, computed rather than stored.
@@ -121,6 +123,66 @@ export const selectPlatformBreakdown = createSelector(
       }))
       .filter((row) => row.drafts > 0 || row.posts > 0),
 );
+
+/* -------------------------------------------------------------------------- */
+/* Calendar: mapping posts onto the time axis                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Scheduled posts grouped by local day: `{ '2026-08-02': [post, …], … }`.
+ *
+ * This is the "map structured data to a temporal layout" step, and doing it once
+ * in a memoized selector is what keeps the calendar cheap. The alternative —
+ * each day cell filtering the full collection for its own date — is O(days ×
+ * posts) on every render, 42 passes over the array for a single month view.
+ * Grouping once is O(posts), and every cell then does a key lookup.
+ *
+ * The grouping key comes from `toDateKey`, which reads *local* date components.
+ * Grouping by the first ten characters of the stored ISO string would be
+ * simpler and wrong: that is the UTC day, so a post scheduled for 11pm would
+ * appear on the following day for anyone east of Greenwich.
+ */
+export const selectScheduledPostsByDay = createSelector([selectAllScheduledPosts], (posts) => {
+  const byDay = {};
+
+  for (const post of posts) {
+    const key = toDateKey(new Date(post.scheduledFor));
+    (byDay[key] ??= []).push(post);
+  }
+
+  return byDay;
+});
+
+/**
+ * The ids for one day, memoized *per day key*.
+ *
+ * Two things are happening here. Returning ids rather than objects means a cell
+ * re-renders only when its set of events changes, not when an event's content is
+ * edited — the same reasoning as `selectVisibleDraftIds`. And because Reselect 5
+ * memoizes on `weakMapMemoize` by default, this single selector serves all 42
+ * cells without the cache thrashing that a cache-size-1 memoizer would cause
+ * when called with a different key each time.
+ */
+export const selectScheduledPostIdsForDay = createSelector(
+  [selectScheduledPostsByDay, (_state, dateKey) => dateKey],
+  (byDay, dateKey) => (byDay[dateKey] ?? []).map((post) => post.id),
+);
+
+/** Events for one day, already ordered by time — used by the week and day grids. */
+export const selectScheduledPostsForDay = createSelector(
+  [selectScheduledPostsByDay, (_state, dateKey) => dateKey],
+  (byDay, dateKey) => byDay[dateKey] ?? [],
+);
+
+/**
+ * How many posts are planned from now on. A count of *upcoming* work is what a
+ * planning view is actually about; total scheduled includes everything already
+ * behind you.
+ */
+export const selectUpcomingScheduledCount = createSelector([selectAllScheduledPosts], (posts) => {
+  const now = new Date().toISOString();
+  return posts.filter((post) => post.scheduledFor >= now).length;
+});
 
 export const selectContentSummary = createSelector(
   [selectAllDrafts, selectAllPosts, selectOverLimitDraftCount],
