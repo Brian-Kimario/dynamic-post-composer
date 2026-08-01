@@ -1,4 +1,4 @@
-import { signToken, verifyToken } from './jwt';
+import { signToken, verifyToken, TokenError, TOKEN_ERROR } from './jwt';
 
 /**
  * The mock authentication server.
@@ -22,11 +22,27 @@ import { signToken, verifyToken } from './jwt';
 const SIGNING_SECRET = 'dpc-experiment-1.3.1-demo-secret';
 
 /**
- * Ten minutes. Long enough to work in, short enough that the expiry countdown
- * in the session panel is something you can actually watch happen — which is
- * the part of token lifecycle that is easy to read about and hard to picture.
+ * Two tokens, two lifetimes — the point of the refresh mechanism.
+ *
+ * The access token is deliberately short-lived: it travels on every request, so
+ * a stolen one should stop working quickly. That would normally mean signing in
+ * every two minutes, which is why the refresh token exists — it is presented
+ * only to the refresh endpoint, so it is exposed far less often, and it can
+ * therefore be trusted for longer.
+ *
+ * Two minutes is short even by real standards (15 is typical). It is chosen so
+ * the renewal is something you can sit and watch happen in the session panel
+ * rather than read about.
  */
-const TOKEN_TTL_SECONDS = 10 * 60;
+const ACCESS_TOKEN_TTL_SECONDS = 2 * 60;
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 60;
+
+/**
+ * Distinguishes the two token types. Without it an access token would be
+ * accepted at the refresh endpoint and vice versa — a token-substitution
+ * weakness, and the reason `typ` is checked rather than assumed.
+ */
+const TOKEN_TYPE = { ACCESS: 'access', REFRESH: 'refresh' };
 
 const LATENCY_MS = 450;
 
@@ -101,23 +117,79 @@ export async function login({ email, password }) {
     throw new Error('Email or password is incorrect.');
   }
 
-  /**
-   * Only what a consumer of the token legitimately needs. `sub` is the JWT
-   * registered claim for "who this token is about"; the rest are private claims.
-   * Nothing sensitive goes in here — the payload is readable by anyone holding
-   * the token.
-   */
-  const token = await signToken(
-    {
-      sub: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-    { secret: SIGNING_SECRET, expiresInSeconds: TOKEN_TTL_SECONDS },
-  );
+  return issueTokenPair(user);
+}
 
-  return { token };
+/**
+ * Mints both tokens for a user.
+ *
+ * The access token carries the full identity, because every request needs it.
+ * The refresh token carries only `sub` — the refresh endpoint looks the user up
+ * again, which is what allows a role change to take effect at the next renewal
+ * instead of being frozen into a token issued hours earlier.
+ */
+async function issueTokenPair(user) {
+  const [accessToken, refreshToken] = await Promise.all([
+    /**
+     * Only what a consumer of the token legitimately needs. `sub` is the JWT
+     * registered claim for "who this token is about"; the rest are private
+     * claims. Nothing sensitive goes in here — the payload is readable by anyone
+     * holding the token.
+     */
+    signToken(
+      {
+        sub: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        typ: TOKEN_TYPE.ACCESS,
+      },
+      { secret: SIGNING_SECRET, expiresInSeconds: ACCESS_TOKEN_TTL_SECONDS },
+    ),
+    signToken(
+      { sub: user.id, typ: TOKEN_TYPE.REFRESH },
+      { secret: SIGNING_SECRET, expiresInSeconds: REFRESH_TOKEN_TTL_SECONDS },
+    ),
+  ]);
+
+  return { accessToken, refreshToken };
+}
+
+/**
+ * The refresh endpoint: a valid refresh token buys a new pair.
+ *
+ * Three checks, each closing something specific:
+ *
+ * 1. The signature and expiry, as for any token.
+ * 2. `typ === 'refresh'`, so an access token cannot be replayed here to extend
+ *    itself indefinitely — the short access lifetime would mean nothing if the
+ *    token could renew itself.
+ * 3. The user still exists, which is the moment a deactivated account actually
+ *    loses access. Statelessness has a cost, and this is where it is paid: an
+ *    already-issued access token stays valid until it expires, so the access
+ *    lifetime *is* the revocation window.
+ *
+ * A new refresh token is issued alongside the access token — rotation. The old
+ * one is not revocable here (there is no server to remember it), and the README
+ * is explicit that a real implementation stores refresh tokens precisely so it
+ * can invalidate the previous one and detect replay.
+ */
+export async function refreshTokens(refreshToken) {
+  await delay();
+
+  const claims = await verifyToken(refreshToken, { secret: SIGNING_SECRET });
+
+  if (claims.typ !== TOKEN_TYPE.REFRESH) {
+    throw new Error('That token cannot be used to refresh a session.');
+  }
+
+  const user = USER_DIRECTORY.find((candidate) => candidate.id === claims.sub);
+
+  if (!user) {
+    throw new Error('That account no longer exists.');
+  }
+
+  return issueTokenPair(user);
 }
 
 /**
@@ -127,9 +199,19 @@ export async function login({ email, password }) {
  * reason JWT is called stateless: the answer to "who is this?" is derived from
  * the token and the secret alone. There is no session table to consult, which is
  * what lets any instance of a service answer the question without shared memory.
+ *
+ * The `typ` check is the mirror of the one in `refreshTokens`: a refresh token
+ * presented as a bearer credential is rejected, so the long-lived token cannot
+ * stand in for the short-lived one.
  */
-export function verifyAccessToken(token) {
-  return verifyToken(token, { secret: SIGNING_SECRET });
+export async function verifyAccessToken(token) {
+  const claims = await verifyToken(token, { secret: SIGNING_SECRET });
+
+  if (claims.typ !== TOKEN_TYPE.ACCESS) {
+    throw new TokenError(TOKEN_ERROR.INVALID_SIGNATURE, 'Not an access token.');
+  }
+
+  return claims;
 }
 
 /** The identity shape the rest of the app works with, built from verified claims. */
