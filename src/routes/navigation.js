@@ -12,6 +12,7 @@ import { PERMISSION, roleHasPermission } from '../config/permissions';
  */
 export const NAV_ITEMS = [
   { to: '/compose', label: 'Compose', icon: 'compose', permission: PERMISSION.DRAFT_WRITE },
+  { to: '/calendar', label: 'Calendar', icon: 'calendar', permission: PERMISSION.CONTENT_READ },
   { to: '/library', label: 'Library', icon: 'library', permission: PERMISSION.CONTENT_READ },
   { to: '/insights', label: 'Insights', icon: 'insights', permission: PERMISSION.INSIGHTS_VIEW },
   { to: '/admin', label: 'Admin', icon: 'admin', permission: PERMISSION.WORKSPACE_ADMIN },
