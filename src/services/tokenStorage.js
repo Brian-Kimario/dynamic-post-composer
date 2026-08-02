@@ -1,7 +1,10 @@
-const TOKEN_KEY = 'dpc.auth.token.v1';
+const ACCESS_KEY = 'dpc.auth.token.v1';
+const REFRESH_KEY = 'dpc.auth.refresh.v1';
+
+const KEYS = [ACCESS_KEY, REFRESH_KEY];
 
 /**
- * Where the access token lives on the client.
+ * Where the tokens live on the client.
  *
  * The choice is a genuine trade-off rather than a detail:
  *
@@ -19,6 +22,13 @@ const TOKEN_KEY = 'dpc.auth.token.v1';
  * honest way to present the trade — the persistence the user wants is precisely
  * the persistence an attacker would inherit.
  *
+ * Both tokens are kept in the same store, which is worth stating plainly: the
+ * refresh token is the more valuable of the two, and putting it where script can
+ * read it undoes much of the benefit of a short access lifetime. A real system
+ * puts the refresh token in an HTTP-only, `SameSite` cookie scoped to the
+ * refresh endpoint and leaves only the access token to JavaScript. That split
+ * needs a server, so it is documented rather than pretended.
+ *
  * Isolating all of this behind one module means the storage decision is one file
  * to revisit, and the interceptor in `apiClient.js` does not care which backend
  * won. Every access is wrapped: storage throws rather than returning null in
@@ -28,18 +38,32 @@ export const tokenStorage = {
   /**
    * Writes to one store and clears the other, so switching "keep me signed in"
    * between sessions can never leave a second, longer-lived copy behind.
+   *
+   * Both tokens are written together. A pair that got out of step — a fresh
+   * access token beside a stale refresh token — would produce a session that
+   * works until the moment it silently cannot renew.
    */
-  save(token, { persistent }) {
+  save({ accessToken, refreshToken }, { persistent }) {
     const [target, other] = persistent
       ? [window.localStorage, window.sessionStorage]
       : [window.sessionStorage, window.localStorage];
 
     try {
-      other.removeItem(TOKEN_KEY);
-      target.setItem(TOKEN_KEY, token);
+      KEYS.forEach((key) => other.removeItem(key));
+      target.setItem(ACCESS_KEY, accessToken);
+      target.setItem(REFRESH_KEY, refreshToken);
     } catch {
       throw new Error('Browser storage is unavailable, so the session could not be saved.');
     }
+  },
+
+  /**
+   * Replaces the tokens after a refresh, in whichever store the session already
+   * lives — so renewing never quietly promotes a tab-scoped session to a
+   * permanent one, or demotes a persistent one.
+   */
+  replace({ accessToken, refreshToken }) {
+    this.save({ accessToken, refreshToken }, { persistent: this.isPersistent() });
   },
 
   /**
@@ -48,18 +72,20 @@ export const tokenStorage = {
    * "you are signed out" is the correct, safe interpretation of both.
    */
   read() {
-    try {
-      return window.sessionStorage.getItem(TOKEN_KEY) ?? window.localStorage.getItem(TOKEN_KEY);
-    } catch {
-      return null;
-    }
+    return readKey(ACCESS_KEY);
+  },
+
+  readRefreshToken() {
+    return readKey(REFRESH_KEY);
   },
 
   /** Signing out must never fail, so this swallows storage errors by design. */
   clear() {
     try {
-      window.sessionStorage.removeItem(TOKEN_KEY);
-      window.localStorage.removeItem(TOKEN_KEY);
+      KEYS.forEach((key) => {
+        window.sessionStorage.removeItem(key);
+        window.localStorage.removeItem(key);
+      });
     } catch {
       /* Nothing useful to do, and nothing to tell the user. */
     }
@@ -68,9 +94,17 @@ export const tokenStorage = {
   /** True when the stored session is the one that survives a browser restart. */
   isPersistent() {
     try {
-      return window.localStorage.getItem(TOKEN_KEY) !== null;
+      return window.localStorage.getItem(ACCESS_KEY) !== null;
     } catch {
       return false;
     }
   },
 };
+
+function readKey(key) {
+  try {
+    return window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}

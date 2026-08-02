@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSelector, createSlice, isRejected } from '@reduxjs/toolkit';
-import { login, userFromClaims, verifyAccessToken } from '../services/authApi';
+import { login, refreshTokens, userFromClaims, verifyAccessToken } from '../services/authApi';
 import { permissionsForRole, roleHasPermission } from '../config/permissions';
 import { decodeToken } from '../services/jwt';
 import { tokenStorage } from '../services/tokenStorage';
@@ -37,22 +37,49 @@ export const restoreSession = createAsyncThunk('auth/restoreSession', async () =
     const claims = await verifyAccessToken(token);
     return { token, claims };
   } catch {
-    // Expired or tampered with. Drop it silently: the user did not just try to
-    // do anything, so there is no failure to report — they are simply signed out.
-    tokenStorage.clear();
-    return null;
+    // The access token is expired or unusable — but with a two-minute lifetime
+    // that is the *normal* state of any tab left open, so it is not by itself a
+    // reason to sign anyone out. The refresh token decides.
+    return restoreByRefreshing();
   }
 });
 
+/**
+ * Last chance before the session is declared over: trade the refresh token for a
+ * new pair. This is what makes a short access lifetime tolerable — a user who
+ * comes back to the tab after lunch is renewed silently instead of being asked
+ * to sign in again.
+ */
+async function restoreByRefreshing() {
+  const refreshToken = tokenStorage.readRefreshToken();
+
+  if (!refreshToken) {
+    tokenStorage.clear();
+    return null;
+  }
+
+  try {
+    const tokens = await refreshTokens(refreshToken);
+    tokenStorage.replace(tokens);
+    return { token: tokens.accessToken, claims: decodeToken(tokens.accessToken).payload };
+  } catch {
+    // The refresh token is expired or invalid too, so the session really is
+    // over. Drop it silently: the user did not just try to do anything, so
+    // there is no failure to report — they are simply signed out.
+    tokenStorage.clear();
+    return null;
+  }
+}
+
 export const logIn = createAsyncThunk('auth/logIn', async ({ email, password, rememberMe }) => {
-  const { token } = await login({ email, password });
+  const tokens = await login({ email, password });
 
   // Persist before the reducer runs, so a reload one tick later still finds it.
-  tokenStorage.save(token, { persistent: rememberMe });
+  tokenStorage.save(tokens, { persistent: rememberMe });
 
   // Safe to decode without re-verifying: this token was signed moments ago by
   // the call above, and `verifyToken` already ran inside it.
-  return { token, claims: decodeToken(token).payload };
+  return { token: tokens.accessToken, claims: decodeToken(tokens.accessToken).payload };
 });
 
 export const logOut = createAsyncThunk('auth/logOut', async () => {
@@ -87,6 +114,7 @@ const signedOutState = {
   token: null,
   claims: null,
   error: null,
+  renewalCount: 0,
 };
 
 const authSlice = createSlice({
@@ -96,10 +124,31 @@ const authSlice = createSlice({
     status: AUTH_STATUS.RESTORING,
     /** Explains an unexpected sign-out, e.g. "your session expired". */
     notice: null,
+    /** How many silent renewals this session has had. Shown in the session panel. */
+    renewalCount: 0,
   },
   reducers: {
     noticeDismissed(state) {
       state.notice = null;
+    },
+
+    /**
+     * The session was renewed underneath the UI, without the user doing
+     * anything. Dispatched by the API client through the handler registered in
+     * `store/index.js` — the services layer does not know Redux exists.
+     *
+     * Deliberately narrow: it swaps the token and the claims and touches nothing
+     * else. Status stays `authenticated` because the user never stopped being
+     * signed in, and identity is re-read from the new token rather than assumed
+     * unchanged, so a role changed between renewals takes effect here.
+     */
+    sessionRenewed(state, action) {
+      const claims = action.payload.claims;
+
+      state.token = action.payload.token;
+      state.claims = claims;
+      state.user = userFromClaims(claims);
+      state.renewalCount += 1;
     },
   },
   extraReducers: (builder) => {
@@ -151,7 +200,7 @@ function applySession(state, { token, claims }) {
   state.error = null;
 }
 
-export const { noticeDismissed } = authSlice.actions;
+export const { noticeDismissed, sessionRenewed } = authSlice.actions;
 
 export const selectAuthStatus = (state) => state.auth.status;
 export const selectIsAuthenticated = (state) => state.auth.status === AUTH_STATUS.AUTHENTICATED;
@@ -165,6 +214,7 @@ export const selectAuthNotice = (state) => state.auth.notice;
  */
 export const selectAccessToken = (state) => state.auth.token;
 export const selectTokenClaims = (state) => state.auth.claims;
+export const selectRenewalCount = (state) => state.auth.renewalCount;
 
 /* -------------------------------------------------------------------------- */
 /* Authorization                                                               */

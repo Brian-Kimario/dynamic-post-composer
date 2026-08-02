@@ -73,9 +73,10 @@ There is still no real backend and no social media integration — publishing is
 browser, everything is stored locally, and the "auth server" is a module (`services/authApi.js`)
 rather than a remote host. The tokens are not simulated: they are real signed JWTs.
 
-**Token refresh remains out of scope** — it is Assignment 5 of the course's Experiment 3, and the
-single branch it would replace is marked in `services/apiClient.js`. Retry logic and toast
-notifications (Experiment 1, Assignment 4) are likewise still unimplemented.
+Retry logic and toast notifications (Experiment 1, Assignment 4) remain unimplemented. Token refresh
+(Experiment 3, Assignment 5) **is** implemented — see the Token Refresh section — with one honest
+gap: refresh tokens are rotated but the previous one cannot be revoked, because revocation needs
+server-side storage.
 
 The honest limit of the RBAC work: the checks are real and enforced at the API layer, but that layer
 runs in the browser, so a determined user can still reach the data. What is demonstrated is the
@@ -140,6 +141,17 @@ end of the Authorization section.
 - Expiry ends the session automatically and explains why, instead of failing silently
 - Records are stamped with the author taken from the verified token, never from the caller
 - Session panel showing the live token, its three segments, decoded claims and expiry countdown
+
+### Token refresh (Experiment 3, Assignment 5)
+
+- Short-lived access token (2 min) paired with a longer-lived refresh token (30 min)
+- An expired token is renewed and the failed request retried, with no interruption to the user
+- Concurrent expiries share a single refresh instead of stampeding
+- Reload with an expired access token renews from the refresh token instead of signing out
+- `typ` claims prevent either token standing in for the other
+- Refresh tokens are rotated on every renewal
+- Only expiry triggers a refresh — a tampered token or a 403 does not
+- Renewals are visible: the session panel counts them and shows the live token being replaced
 
 ### RBAC & route protection (1.3.2)
 
@@ -584,7 +596,8 @@ the user is asking for is exactly the persistence an attacker would inherit. All
 1. **Request** — attach `Authorization: Bearer <token>`, read from storage.
 2. **Transit** — simulated latency.
 3. **Server** — verify the token and derive the user; refuse with a 401-equivalent otherwise.
-4. **Response** — on that refusal, discard the dead token and end the session.
+4. **Response** — on expiry, refresh once and retry; on anything else, discard the dead token and
+   end the session.
 
 Doing it centrally is the entire argument for interceptors: no feature module can forget the header,
 and there is exactly one definition of what a 401 means. `authSlice` reacts to it with a matcher on
@@ -594,6 +607,72 @@ every thunk. Swapping in `axios.create()` later changes this file's internals an
 The handler receives the user **derived from the token**, so `create()` stamps `authorId` from
 claims rather than from its arguments — a component has no way to write a record as somebody else,
 because it never gets to say who it is.
+
+### Token refresh
+
+Two tokens, two jobs:
+
+| Token   | Lifetime | Sent with             | Carries                |
+| ------- | -------- | --------------------- | ---------------------- |
+| Access  | 2 min    | every request         | full identity + `role` |
+| Refresh | 30 min   | only the refresh call | `sub` and `typ` only   |
+
+The short access lifetime is the point of the whole arrangement: it travels constantly, so a stolen
+one should stop working quickly. That would mean signing in every two minutes, which is what the
+refresh token prevents — it is presented rarely, so it can be trusted for longer. Two minutes is
+shorter than the usual fifteen so the renewal is something you can sit and watch in the session
+panel.
+
+The refresh token carries only `sub`. The refresh endpoint looks the user up again, which is what
+lets a **role change take effect at the next renewal** rather than being frozen into a token issued
+half an hour earlier.
+
+**The flow, when a request meets an expired token:**
+
+```
+request → 401 (expired) → refresh once → retry the original request → success
+                            │
+                            └─ refresh token also dead → clear both → sign out
+```
+
+Three details are what make this work rather than merely look right:
+
+1. **Only expiry triggers a refresh.** A tampered or malformed token is not going to be fixed by
+   asking for a new pair, so `UnauthorizedError` carries an `isExpired` flag and the other cases go
+   straight to sign-out. A 403 is not in this path at all — no new token grants a permission the role
+   does not have.
+2. **The retry re-attaches the header.** It re-runs the request interceptor rather than reusing the
+   original request object, which would resend the token that just expired and fail identically. A
+   common bug in hand-rolled interceptors.
+3. **`allowRefresh` is false on the retry**, bounding the recursion at exactly one extra attempt. If
+   it fails again, the problem is not the token, and looping would turn a failure into a hang.
+
+**Single-flight refresh.** The page loads, two panels fetch at once, both get a 401 within
+milliseconds. Without care each starts its own refresh — two renewals, two new pairs, and with
+rotation the earlier one immediately superseded. The classic symptom is being logged out at random on
+a slow connection. A module-level promise makes the first caller start the refresh and every other
+caller await the same one. Verified: two concurrent expired requests produced exactly **one**
+renewal, not two.
+
+**Reload is covered too.** `restoreSession` no longer gives up when the stored access token is
+expired — with a two-minute lifetime that is the normal state of any tab left open. It falls through
+to the refresh token, so returning to a tab after lunch renews silently instead of demanding a
+new sign-in.
+
+**Type confusion is closed in both directions.** Each token carries `typ`, checked on use: a refresh
+token presented as a bearer credential is rejected, and an access token presented at the refresh
+endpoint is rejected. Without that check the short access lifetime would mean nothing, because an
+access token could renew itself indefinitely.
+
+**What is not real here.** Rotation issues a new refresh token on every renewal, but the old one
+cannot be revoked — there is no server to remember it, so a leaked refresh token stays valid until it
+expires. A real implementation stores refresh tokens precisely so it can invalidate the previous one
+and treat reuse of a rotated token as theft. Related: both tokens sit in web storage, where script
+can read them; the reason to split them (HTTP-only cookie for the refresh token, JavaScript for the
+access token) also needs a server. And statelessness has a standing cost that refresh makes concrete
+— an already-issued access token stays valid until it expires, so **the access lifetime is the
+revocation window**. Two minutes is a deliberate choice about how long a deactivated account keeps
+working.
 
 ### Three states, not two booleans
 
@@ -1146,6 +1225,27 @@ The two bold rows are the point of the experiment. In both, the button for the a
 screen at all, the action was dispatched anyway, and the API layer refused it — which is the
 difference between a hidden control and an enforced permission.
 
+### Token refresh (Experiment 3, Assignment 5)
+
+Expired and substituted tokens were minted outside the app with the same secret, so each case
+exercised one specific branch rather than "something was wrong with the token".
+
+| Case                                            | Result                                                                                                                |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Login response                                  | Access `typ: access`, TTL 120s, full claims; refresh `typ: refresh`, TTL 1800s, `sub` only                            |
+| Expired access, valid refresh                   | Renewed silently — stayed on the page, drafts loaded, new token valid 113s                                            |
+| Session panel after that                        | "Renewed 1×", showing the replacement token                                                                           |
+| **Two concurrent expired requests**             | **"Renewed 2×", not 3× — one shared refresh, not one each**                                                           |
+| Expired access **and** expired refresh          | Signed out, expiry notice, both keys cleared from both stores                                                         |
+| Refresh token used as a bearer credential       | Rejected with the _"no longer valid"_ message — no refresh attempted                                                  |
+| Reload with expired access (persistent session) | Renewed during restore; stayed on `/insights`, tokens stayed in `localStorage` and did not leak into `sessionStorage` |
+| **403 from a viewer**                           | **No refresh, token unchanged, still authenticated**                                                                  |
+| Console                                         | No errors or React warnings                                                                                           |
+| Lint / build                                    | `npm run lint` clean, `npm run build` succeeds                                                                        |
+
+The concurrency row is the one worth keeping. It is the difference between a refresh mechanism that
+works in a demo and one that survives a page where several panels load at once.
+
 ---
 
 ## Future Experiments
@@ -1172,9 +1272,12 @@ The current structure leaves specific places for later work:
   storage; swapping it for HTTP calls needs no component or slice changes, because the thunks
   already model latency and failure. `postValidation.js` is framework-free and can be shared with
   the server so the same rules run in both places.
-- **Token refresh** (Assignment 5) — `apiClient.js` currently discards a dead token at the one point
-  that detects it. A refresh flow replaces that single branch: request a new access token, then retry
-  the original request.
+- **Refresh token revocation** — rotation is in place, but invalidating the superseded token needs
+  server-side storage. That store is also what makes reuse-detection possible: a rotated token being
+  presented again is evidence of theft, and the usual response is to kill the whole token family.
+- **Proactive refresh** — renewal is currently reactive, triggered by a 401. Refreshing shortly
+  before expiry would remove even the one retried request; the expiry is already known, since `exp`
+  is right there in the payload.
 - **Per-record ownership** — records already carry `authorId` from the token, so a rule like "editors
   may delete only their own drafts" is a check inside the handler, next to the permission check,
   rather than a new concept.
