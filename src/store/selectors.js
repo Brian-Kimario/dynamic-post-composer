@@ -154,25 +154,67 @@ export const selectScheduledPostsByDay = createSelector([selectAllScheduledPosts
 });
 
 /**
- * The ids for one day, memoized *per day key*.
- *
- * Two things are happening here. Returning ids rather than objects means a cell
- * re-renders only when its set of events changes, not when an event's content is
- * edited — the same reasoning as `selectVisibleDraftIds`. And because Reselect 5
- * memoizes on `weakMapMemoize` by default, this single selector serves all 42
- * cells without the cache thrashing that a cache-size-1 memoizer would cause
- * when called with a different key each time.
+ * One shared empty array, so a day with nothing in it never allocates and
+ * therefore never looks "changed" to `memo`.
  */
-export const selectScheduledPostIdsForDay = createSelector(
-  [selectScheduledPostsByDay, (_state, dateKey) => dateKey],
-  (byDay, dateKey) => (byDay[dateKey] ?? []).map((post) => post.id),
-);
+const NO_POSTS = [];
 
-/** Events for one day, already ordered by time — used by the week and day grids. */
-export const selectScheduledPostsForDay = createSelector(
-  [selectScheduledPostsByDay, (_state, dateKey) => dateKey],
-  (byDay, dateKey) => byDay[dateKey] ?? [],
-);
+const shallowArrayEqual = (a, b) =>
+  a === b || (a.length === b.length && a.every((item, index) => item === b[index]));
+
+/**
+ * Selector **factories**, and the reason they are factories is the whole
+ * optimisation in Experiment 1.4.2.
+ *
+ * The first version of these was a single shared parameterised selector. It was
+ * correct and it re-rendered every cell in the grid on every change: moving one
+ * event cost **168** `MonthDayCell` renders and **672** `TimeSlot` renders,
+ * measured, when two cells had actually changed.
+ *
+ * The cause is one level up. `selectScheduledPostsByDay` must rebuild when any
+ * post moves, so it returns a new object; every per-day slice derived from it is
+ * then a new array too, and 42 cells receive 42 new references for data that is
+ * identical in 40 of them.
+ *
+ * `resultEqualityCheck` fixes exactly that — return the *previous* array when the
+ * new one is shallow-equal — but it cannot be shared. `weakMapMemoize` keeps a
+ * single `lastResult` per memoized function, so one selector serving 42 days
+ * would compare each day against whichever day happened to run last. Giving each
+ * component its own instance gives each day its own `lastResult`, which is what
+ * makes the comparison meaningful.
+ *
+ * Usage is `useMemo(makeSelectScheduledPostIdsForDay, [])` in the component, so
+ * the instance lives as long as the cell does.
+ */
+export const makeSelectScheduledPostIdsForDay = () =>
+  createSelector(
+    [selectScheduledPostsByDay, (_state, dateKey) => dateKey],
+    (byDay, dateKey) => byDay[dateKey]?.map((post) => post.id) ?? NO_POSTS,
+    { memoizeOptions: { resultEqualityCheck: shallowArrayEqual } },
+  );
+
+/**
+ * Posts for one hour of one day.
+ *
+ * The hour filter moved out of `TimeSlot` and into the selector deliberately.
+ * Filtering in the component meant every one of the 168 slots re-rendered
+ * whenever the day's array identity changed, even though at most two slots could
+ * be affected. Here the filtered result is compared against that slot's own
+ * previous result, so an unaffected slot keeps its reference and `memo` stops
+ * the render.
+ */
+export const makeSelectScheduledPostsForSlot = () =>
+  createSelector(
+    [selectScheduledPostsByDay, (_state, dateKey) => dateKey, (_state, _dateKey, hour) => hour],
+    (byDay, dateKey, hour) => {
+      const forDay = byDay[dateKey];
+      if (!forDay) return NO_POSTS;
+
+      const forHour = forDay.filter((post) => new Date(post.scheduledFor).getHours() === hour);
+      return forHour.length > 0 ? forHour : NO_POSTS;
+    },
+    { memoizeOptions: { resultEqualityCheck: shallowArrayEqual } },
+  );
 
 /**
  * How many posts are planned from now on. A count of *upcoming* work is what a

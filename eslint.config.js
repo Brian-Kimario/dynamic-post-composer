@@ -10,7 +10,7 @@ import prettier from 'eslint-config-prettier';
  * last so formatting is left entirely to Prettier.
  */
 export default [
-  { ignores: ['dist', 'node_modules'] },
+  { ignores: ['dist', 'node_modules', 'coverage'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {

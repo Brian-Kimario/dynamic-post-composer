@@ -1,6 +1,6 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useSelector } from 'react-redux';
-import { selectScheduledPostsForDay } from '../../store/selectors';
+import { makeSelectScheduledPostsForSlot } from '../../store/selectors';
 import { fromDateKey, withTimeOfDay } from '../../utils/calendar';
 import { useScheduleDropTarget } from '../../hooks/useScheduleDropTarget';
 import ScheduledPostChip from './ScheduledPostChip';
@@ -9,16 +9,15 @@ import ScheduledPostChip from './ScheduledPostChip';
  * One hour of one day — the actual "time slot" the brief asks posts to be
  * mapped onto.
  *
- * Selecting the day's posts and filtering to this hour, rather than grouping by
- * hour globally, is a deliberate trade: a week is 168 slots, and a
- * `Map` keyed by day-and-hour would be a second index to keep in step with the
- * first for no measurable gain at this size. The day grouping is memoized, so
- * this filter runs over a handful of events, not the whole collection.
+ * The hour filter used to run here, in the component body. That was correct and
+ * it meant all 168 slots of a week re-rendered whenever any post moved, because
+ * the day's array identity changed underneath them. It now happens inside a
+ * per-slot memoized selector, so a slot re-renders only when *its own hour*
+ * gains or loses an event.
  */
 function TimeSlot({ dateKey, hour }) {
-  const postsForDay = useSelector((state) => selectScheduledPostsForDay(state, dateKey));
-
-  const posts = postsForDay.filter((post) => new Date(post.scheduledFor).getHours() === hour);
+  const selectPosts = useMemo(() => makeSelectScheduledPostsForSlot(), []);
+  const posts = useSelector((state) => selectPosts(state, dateKey, hour));
 
   // Dropping on an hour sets that hour exactly, discarding the original minutes
   // — the slot the user aimed at is the answer, not the slot plus a remembered

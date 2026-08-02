@@ -14,7 +14,7 @@ Access is role-based: what a user can see, open and do is determined by the role
 Posts can also be scheduled onto a content calendar and rearranged by dragging.
 
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1, 1.3.2 and 1.4.1**.
+**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1, 1.3.2, 1.4.1 and 1.4.2**.
 
 ---
 
@@ -75,6 +75,15 @@ thing standing between a user and an action they may not take.
 
 Covers temporal data modelling, mapping posts onto month/week/day layouts, click-to-view-and-edit,
 drag-and-drop rescheduling, and keeping the calendar in step with application state.
+
+### Experiment 1.4.2 — Optimization & Testing
+
+**Aim:** To optimize rendering performance and implement testing strategies for interactive UI
+components.
+
+Covers profiling the calendar to find a real bottleneck, fixing it with per-component memoized
+selectors, and an automated suite — unit, integration and render-count tests — that holds both the
+behaviour and the optimisation in place.
 
 ### Scope
 
@@ -175,6 +184,15 @@ end of the Authorization section.
 - Read-only for viewers — chips are not draggable and the dialog says why
 - Overflowing days collapse to "+N more", which opens that day
 
+### Optimization & testing (1.4.2)
+
+- A measured bottleneck: moving one event re-rendered **168** month cells and **672** week slots
+- Fixed with per-component memoized selectors — the same moves now cost **4** and **6**
+- 89 automated tests across date logic, reducers, selectors, components and interactions
+- Drag-and-drop covered by tests that fire real `DragEvent`s through a shared `DataTransfer`
+- Render-count tests that fail if the optimisation is ever undone
+- 93% statement and 96% line coverage over the experiment's subject files
+
 ### RBAC & route protection (1.3.2)
 
 - Three roles — admin, editor, viewer — defined as permission sets in one config file
@@ -192,19 +210,21 @@ end of the Authorization section.
 
 ## Tech Stack
 
-| Technology         | Why it is here                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------------- |
-| **React 19**       | Component model and state management for a UI that re-renders on every keystroke.                       |
-| **Vite 8**         | Dev server with fast HMR and an optimised production build.                                             |
-| **Tailwind CSS 4** | Utility-first styling with a consistent spacing/colour scale and no separate CSS files to keep in sync. |
-| **lucide-react**   | Small, tree-shakeable icon set for status and action icons.                                             |
-| **ESLint**         | Correctness rules, notably `eslint-plugin-react-hooks` for the rules of hooks.                          |
-| **Prettier**       | Formatting, including automatic Tailwind class sorting.                                                 |
-| **Redux Toolkit**  | Centralized store, normalized entity state and async thunks (added in 1.2.1).                           |
-| **React-Redux**    | `useSelector` / `useDispatch` bindings between the store and components.                                |
-| **Reselect**       | Memoized selectors via `createSelector` — ships inside Redux Toolkit, so it is not a separate install.  |
-| **Web Crypto API** | HMAC-SHA256 signing and verification for JWTs — a browser built-in, not a dependency (added in 1.3.1).  |
-| **React Router 8** | Client-side routing, and the layer route protection is expressed in (added in 1.3.2).                   |
+| Technology          | Why it is here                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| **React 19**        | Component model and state management for a UI that re-renders on every keystroke.                       |
+| **Vite 8**          | Dev server with fast HMR and an optimised production build.                                             |
+| **Tailwind CSS 4**  | Utility-first styling with a consistent spacing/colour scale and no separate CSS files to keep in sync. |
+| **lucide-react**    | Small, tree-shakeable icon set for status and action icons.                                             |
+| **ESLint**          | Correctness rules, notably `eslint-plugin-react-hooks` for the rules of hooks.                          |
+| **Prettier**        | Formatting, including automatic Tailwind class sorting.                                                 |
+| **Redux Toolkit**   | Centralized store, normalized entity state and async thunks (added in 1.2.1).                           |
+| **React-Redux**     | `useSelector` / `useDispatch` bindings between the store and components.                                |
+| **Reselect**        | Memoized selectors via `createSelector` — ships inside Redux Toolkit, so it is not a separate install.  |
+| **Web Crypto API**  | HMAC-SHA256 signing and verification for JWTs — a browser built-in, not a dependency (added in 1.3.1).  |
+| **React Router 8**  | Client-side routing, and the layer route protection is expressed in (added in 1.3.2).                   |
+| **Vitest 4**        | Test runner. Jest-compatible API, and it reuses the Vite config (added in 1.4.2).                       |
+| **Testing Library** | Component tests written the way a user interacts, not against implementation details (added in 1.4.2).  |
 
 Up to Experiment 1.1.2 the app used only `useState` and `useReducer`, which was the right call for
 two state owners that barely interacted. Redux Toolkit was introduced in 1.2.1 once three domains
@@ -936,6 +956,111 @@ the day, so a month after 31 January is the end of February rather than spilling
 
 ---
 
+## Performance & Testing
+
+### The bottleneck was measured, not guessed
+
+The calendar was built in 1.4.1 with `memo` on every cell and chip and a memoized grouping selector —
+it _looked_ optimised. Counting renders said otherwise. Temporary counters in `MonthDayCell` and
+`TimeSlot`, driven by moving a single event:
+
+| Interaction                   | Components in view | Renders before | Renders after |
+| ----------------------------- | -----------------: | -------------: | ------------: |
+| Move an event (month view)    |           42 cells |        **168** |         **4** |
+| Move an event (week view)     |          168 slots |        **672** |         **6** |
+| Select an event (open dialog) |           42 cells |          **0** |         **0** |
+
+Two cells actually change when an event moves. Everything else was work thrown away.
+
+### Why `memo` was not enough
+
+`memo` compares props, and the props were fine — the _selector results_ were not:
+
+```
+selectAllScheduledPosts   → new array whenever any post changes   (entity adapter)
+selectScheduledPostsByDay → new object                             (must rebuild)
+byDay[dateKey]            → new array for all 42 days             ← the actual problem
+```
+
+Forty of those forty-two arrays contained exactly the same ids as before, but each was a new
+reference, so `useSelector` reported a change and `memo` was never consulted.
+
+Reselect's `resultEqualityCheck` exists for precisely this: return the _previous_ result when the new
+one is shallow-equal. The catch is that it cannot be shared. `weakMapMemoize` keeps a single
+`lastResult` per memoized function, so one selector serving 42 days compares each day against
+whichever day happened to run last — meaningless. The fix is a **selector factory**, one instance per
+component:
+
+```js
+const selectPostIds = useMemo(() => makeSelectScheduledPostIdsForDay(), []);
+const postIds = useSelector((state) => selectPostIds(state, dateKey));
+```
+
+Now each day has its own `lastResult` to compare against, unchanged days keep their array reference,
+and `memo` stops the render. The same change moved `TimeSlot`'s hour filter out of the component body
+and into its selector, which is what took the week grid from 672 renders to 6.
+
+The lesson generalises: **`memo` is only as good as the stability of what you feed it.** Adding
+`memo` to a component whose selector allocates on every call achieves nothing at all.
+
+### What the tests actually pin
+
+```
+npm run test           # watch mode
+npm run test:run       # once
+npm run test:coverage  # with a coverage report
+```
+
+89 tests across 11 files, in three layers:
+
+| Layer       | Files                                                            | What it protects                            |
+| ----------- | ---------------------------------------------------------------- | ------------------------------------------- |
+| Pure logic  | `calendar.test.js`, `postValidation.test.js`                     | DST, month clamping, local day keys, limits |
+| State       | `scheduleSlice`, `scheduleThunks`, `selectors`, `draftSelectors` | optimistic rollback, grouping, memoization  |
+| Components  | `MonthGrid`, `TimeGrid`, `CalendarToolbar`, `EventDetailPanel`   | drag, click, permissions, paging            |
+| Render cost | `renderCount.test.jsx`                                           | the optimisation above                      |
+
+The render-count tests are the ones worth explaining. A `<Profiler>` reports _commits of the tree it
+wraps_, so wrapping the whole grid would report `1` whether one cell re-rendered or all forty-two —
+React batches them into a single commit. Wrapping **one cell** and changing a _different_ day asks
+the question precisely: did this component, which nothing relevant happened to, render at all?
+
+These were confirmed to fail against the old code before being kept: reverting the selector to the
+shared version turns "does not re-render when a different day changes" red. A test that has never
+failed is not yet evidence of anything.
+
+Drag-and-drop is tested by firing the three events the HTML5 API actually defines through one shared
+`DataTransfer` — `userEvent` has no drag simulation, and pointer events are not what a drag emits.
+
+### Two deliberate deviations from the brief
+
+**Vitest instead of Jest.** The tests are written against the Jest API — `describe`, `it`, `expect`,
+spies — so what is being learned transfers unchanged. What differs is the runner. This is an ESM
+project built by Vite; Jest would need its own Babel transform, module resolution and JSX pipeline
+maintained alongside Vite's, and the tests would then run through a _different_ build than the app.
+Vitest reuses the config in `vite.config.js`, so a test imports a module exactly as the app does.
+React Testing Library — the part the brief is actually about — is identical either way.
+
+**No MSW.** Mock Service Worker intercepts HTTP, and this app makes none: its "API" is
+`services/localCollection.js` over `localStorage`. Installing MSW here would mock a network boundary
+that does not exist. The equivalent seam is the service module, and `scheduleThunks.test.js` mocks
+_that_ — giving what MSW would give, control over what the "server" returns including failures that
+are awkward to produce for real, while thunks, reducers and the optimistic update all run for real.
+When a backend arrives, MSW becomes the right tool and that one file changes.
+
+### Coverage
+
+93% of statements and 96% of lines over the files this experiment is about — the calendar
+components, its state, and the date and validation logic. Config, entry points and presentational
+shells are excluded from the report rather than padded with tests, so the number reflects logic that
+can actually break.
+
+The largest remaining gap is `EventDetailPanel`'s "edit content" path, which moves a scheduled post
+back into the composer as a draft and depends on the drafts service; it is exercised by hand but not
+yet automated.
+
+---
+
 ## Validation Model
 
 `validatePost(content, platform)` is a pure function: same inputs, same output, no React involved.
@@ -1156,6 +1281,21 @@ and it would have logged users out for clicking a button their role does not all
 **The permission table is rendered, not restated.** The admin page builds its matrix from
 `permissions.js` itself, so documentation of the rules cannot drift from the rules.
 
+**Measure before optimising, and measure again after.** The calendar had `memo` on every cell and a
+memoized grouping selector, and still re-rendered 42 cells to move one event. The counters found
+that; reading the code had not. The numbers are in the Performance section rather than a claim that
+it "should be fast now".
+
+**A selector factory per component, not one shared selector.** `resultEqualityCheck` is what keeps an
+unchanged day's array reference stable, and it only works when each consumer has its own memoized
+instance to compare against. This is the difference between memoization that works and memoization
+that is merely present.
+
+**Render counts are asserted, not just improved.** Correctness tests pass identically before and
+after the optimisation — the calendar rendered the right thing all along, just far too often. The
+only way to keep the improvement is to assert on it, so the tests count renders and were confirmed to
+fail against the old implementation before being kept.
+
 **Store the instant, derive the day.** `scheduledFor` is UTC; every day, hour and label the user sees
 is computed from it in local time. The reverse — storing what the user typed — would make the same
 post fall on different days for different people and break outright across a daylight-saving
@@ -1229,13 +1369,36 @@ npm run lint
 npm run format
 ```
 
+Tests (added in 1.4.2) — watch mode, a single run, and a coverage report:
+
+```bash
+npm run test
+```
+
+```bash
+npm run test:run
+```
+
+```bash
+npm run test:coverage
+```
+
 ---
 
 ## Testing
 
-This experiment has no automated test suite; `postValidation.js` was written as a pure function
-specifically so one can be added without refactoring. The following was verified manually in the
-browser:
+Experiments 1.1.1 through 1.4.1 were verified by hand in a real browser, and those results are kept
+below because several of them — drag highlighting, focus traps, a token expiring mid-session — are
+about behaviour a jsdom test cannot observe.
+
+**Experiment 1.4.2 added the automated suite**: 89 tests, run with `npm run test:run`. Where a manual
+check below has since been replaced by a test, the test is the one that will catch a regression; the
+manual record stands as evidence of what was observed in a real browser at the time.
+
+### Experiment 1.1.1 — manual
+
+`postValidation.js` was written as a pure function specifically so a suite could be added without
+refactoring, which is what 1.4.2 then did. The following was verified manually in the browser:
 
 | Case               | Result                                                                               |
 | ------------------ | ------------------------------------------------------------------------------------ |
@@ -1430,8 +1593,39 @@ same sequence a mouse produces — `dragstart` on the chip, `dragover` and `drop
 | Console                                      | No errors or React warnings                                                                                |
 | Lint / build                                 | `npm run lint` clean, `npm run build` succeeds                                                             |
 
+Both of these are now covered by automated tests as well — the local-day-key case in
+`calendar.test.js` and `selectors.test.js`, the rollback in `scheduleSlice.test.js` and
+`scheduleThunks.test.js`.
+
 The 2am row is the one the whole date model turns on, and the rollback row is the one that justifies
 being optimistic at all.
+
+### Optimization & testing (1.4.2) — automated
+
+```
+Test Files  11 passed (11)
+     Tests  89 passed (89)
+
+Statements   93.46%   Branches   84.90%   Functions   93.20%   Lines   95.85%
+```
+
+| Suite                       | Tests | Covers                                                              |
+| --------------------------- | ----: | ------------------------------------------------------------------- |
+| `calendar.test.js`          |    16 | local day keys, DST-safe `addDays`, month clamping, grid shape      |
+| `postValidation.test.js`    |    14 | empty/valid/warning/error boundaries, grapheme counting             |
+| `scheduleSlice.test.js`     |     7 | optimistic move, rollback to the exact original instant, re-sorting |
+| `scheduleThunks.test.js`    |     8 | fetch/create/update/remove lifecycles including refusals            |
+| `selectors.test.js`         |     8 | grouping by local day, reference stability per day and per slot     |
+| `draftSelectors.test.js`    |    11 | the 1.2.2 filter/page/insights pipeline                             |
+| `MonthGrid.test.jsx`        |     6 | drag payload, drop semantics, viewer restrictions, click-to-select  |
+| `TimeGrid.test.jsx`         |     4 | 24 hour rows, 7 vs 1 columns, event placed in its own hour          |
+| `CalendarToolbar.test.jsx`  |     6 | view-aware paging, month clamping, Today, `aria-pressed`            |
+| `EventDetailPanel.test.jsx` |     7 | typed reschedule, unschedule, close, read-only for viewers          |
+| `renderCount.test.jsx`      |     6 | the optimisation — verified to fail against the old implementation  |
+
+Manual checks after the optimisation, in a real browser: the calendar renders, drag still moves an
+event to another day keeping its time, and a fresh tab reports no console errors. Lint and build are
+clean, and no measurement instrumentation was committed.
 
 ---
 
@@ -1439,9 +1633,9 @@ being optimistic at all.
 
 The current structure leaves specific places for later work:
 
-- **Calendar and scheduling views** — the PDF's stated end goal for selectors. A `scheduledFor`
-  field on the draft record plus a `selectDraftsByDay` selector composed from `selectAllDrafts`
-  would follow the same pipeline as the insights panel.
+- **End-to-end tests** — the suite covers units and integration in jsdom. A real browser is still the
+  only place drag highlighting, `<dialog>`'s focus trap and a token expiring mid-session can be
+  observed; Playwright would automate what is currently a manual pass.
 - **List virtualization** — paging currently caps rendered rows at six at a time. Past a few hundred
   drafts, windowing would replace it; the selectors already return ids, which is what a virtualizer
   wants.
@@ -1473,9 +1667,8 @@ The current structure leaves specific places for later work:
 - **Route-level data loading** — the router is in data mode, so loaders and `middleware` are
   available. The panels currently fetch in effects, which is deliberate continuity with 1.2.1 rather
   than a limitation of the router.
-- **Optimization & testing** (Experiment 4.2) — the calendar is the natural subject: `memo` on cells
-  and chips and the day grouping selector are already in place, so that experiment is about
-  _measuring_ them with the Profiler and covering the drag path with React Testing Library.
+- **Virtualized month grids** — 42 cells render cheaply now, but a year view or a busy team calendar
+  would want windowing. The selectors already return ids, which is what a virtualizer wants.
 - **Keyboard drag-and-drop** — rescheduling by keyboard currently goes through the dialog's date
   field. A grab-and-move keyboard mode on the chip itself would put both routes on equal footing.
 - **Publishing a scheduled post when its time arrives** — nothing currently fires at `scheduledFor`;

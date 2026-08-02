@@ -1,6 +1,6 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useDispatch, useSelector, useStore } from 'react-redux';
-import { selectScheduledPostIdsForDay } from '../../store/selectors';
+import { makeSelectScheduledPostIdsForDay } from '../../store/selectors';
 import { selectScheduledPostById } from '../../store/scheduleSlice';
 import { CALENDAR_VIEW, dateFocused, viewChanged } from '../../store/calendarSlice';
 import {
@@ -30,7 +30,10 @@ function MonthDayCell({ dateKey, isCurrentMonth }) {
   // Subscribing to it with `useSelector` would re-render every cell on any change.
   const store = useStore();
 
-  const postIds = useSelector((state) => selectScheduledPostIdsForDay(state, dateKey));
+  // One selector instance per cell — see the note on the factory. Sharing one
+  // instance across all 42 cells is what made a single move re-render the grid.
+  const selectPostIds = useMemo(() => makeSelectScheduledPostIdsForDay(), []);
+  const postIds = useSelector((state) => selectPostIds(state, dateKey));
 
   const day = fromDateKey(dateKey);
   const today = isToday(day);
