@@ -1,4 +1,5 @@
 import { verifyAccessToken, userFromClaims } from './authApi';
+import { roleHasPermission } from '../config/permissions';
 import { TOKEN_ERROR } from './jwt';
 import { tokenStorage } from './tokenStorage';
 
@@ -11,6 +12,7 @@ import { tokenStorage } from './tokenStorage';
  *   request  → attach the Authorization header  (request interceptor)
  *   transit  → simulated latency
  *   server   → verify the token, derive identity (stateless authentication)
+ *            → check the caller's role against the required permission (RBAC)
  *   response → translate a rejection into a session change (response interceptor)
  *
  * Doing this centrally rather than per call site is the whole argument for
@@ -31,6 +33,21 @@ export class UnauthorizedError extends Error {
     super(message);
     this.name = 'UnauthorizedError';
     this.status = 401;
+  }
+}
+
+/**
+ * 403, not 401 — and the difference is the whole authentication/authorization
+ * distinction in one status code. 401 means "I do not know who you are", and the
+ * fix is to sign in again. 403 means "I know exactly who you are, and the answer
+ * is still no". Conflating them would sign a user out for asking to do something
+ * their role simply does not allow, which is both wrong and infuriating.
+ */
+export class ForbiddenError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ForbiddenError';
+    this.status = 403;
   }
 }
 
@@ -78,6 +95,24 @@ async function authenticate(request) {
 }
 
 /**
+ * The authorization check, run after identity is established and before any
+ * handler executes.
+ *
+ * The role is read from the *verified* token, never from anything the caller
+ * passed in, so a component cannot ask for more than its user was granted. This
+ * is the check that actually protects data — the hidden buttons and guarded
+ * routes in the UI are convenience, and a user with the console open is not
+ * bound by either.
+ */
+function authorize(user, permission) {
+  if (!permission || roleHasPermission(user.role, permission)) return;
+
+  throw new ForbiddenError(
+    `Your role (${user.role}) does not have permission to perform this action.`,
+  );
+}
+
+/**
  * Sends a request through the pipeline and hands the verified claims to the
  * handler, which stands in for the endpoint's own logic.
  *
@@ -86,14 +121,18 @@ async function authenticate(request) {
  * cannot write a record as somebody else, because it never gets to say who it
  * is — the token does.
  */
-export async function sendRequest({ latencyMs = 0, ...config }, handler) {
+export async function sendRequest({ latencyMs = 0, permission, ...config }, handler) {
   const request = attachAuthorization(config);
 
   await delay(latencyMs);
 
   try {
     const claims = await authenticate(request);
-    return handler(userFromClaims(claims));
+    const user = userFromClaims(claims);
+
+    authorize(user, permission);
+
+    return handler(user);
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       // Response interceptor. An expired or tampered token will fail every

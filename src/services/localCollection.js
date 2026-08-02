@@ -13,8 +13,14 @@ import { sendRequest } from './apiClient';
  * goes through `sendRequest`, which attaches the bearer token and refuses to run
  * the handler unless that token verifies. The delay moved in there with it, so
  * latency is simulated where the round trip conceptually happens.
+ *
+ * Experiment 1.3.2 adds the second half: each operation declares the permission
+ * it requires, and `sendRequest` refuses to run the handler unless the role in
+ * the token holds it. The permissions are passed in per collection because
+ * "delete" means something different for a draft than for a published post —
+ * editors may discard their own drafts, but unpublishing is an admin act.
  */
-export function createLocalCollectionApi({ storageKey, label, latencyMs = 350 }) {
+export function createLocalCollectionApi({ storageKey, label, latencyMs = 350, permissions = {} }) {
   /**
    * localStorage throws rather than returning null in several real situations:
    * Safari private mode, disabled site data, and exceeded quota. Every access is
@@ -53,58 +59,69 @@ export function createLocalCollectionApi({ storageKey, label, latencyMs = 350 })
 
   return {
     fetchAll() {
-      return request({ method: 'GET', url: `/${label}` }, () => read());
+      return request({ method: 'GET', url: `/${label}`, permission: permissions.read }, () =>
+        read(),
+      );
     },
 
     create(attributes) {
       // The author is taken from the verified token, not from the arguments —
       // the composer has no way to claim a different identity.
-      return request({ method: 'POST', url: `/${label}` }, (user) => {
-        const now = new Date().toISOString();
-        const record = {
-          id: createId(),
-          ...attributes,
-          authorId: user.id,
-          authorName: user.name,
-          createdAt: now,
-          updatedAt: now,
-        };
+      return request(
+        { method: 'POST', url: `/${label}`, permission: permissions.create },
+        (user) => {
+          const now = new Date().toISOString();
+          const record = {
+            id: createId(),
+            ...attributes,
+            authorId: user.id,
+            authorName: user.name,
+            createdAt: now,
+            updatedAt: now,
+          };
 
-        write([record, ...read()]);
-        return record;
-      });
+          write([record, ...read()]);
+          return record;
+        },
+      );
     },
 
     update(id, changes) {
-      return request({ method: 'PATCH', url: `/${label}/${id}` }, () => {
-        const items = read();
-        const index = items.findIndex((item) => item.id === id);
+      return request(
+        { method: 'PATCH', url: `/${label}/${id}`, permission: permissions.update },
+        () => {
+          const items = read();
+          const index = items.findIndex((item) => item.id === id);
 
-        if (index === -1) {
-          throw new Error('That record no longer exists.');
-        }
+          if (index === -1) {
+            throw new Error('That record no longer exists.');
+          }
 
-        const updated = { ...items[index], ...changes, updatedAt: new Date().toISOString() };
-        const next = [...items];
-        next[index] = updated;
-        write(next);
+          const updated = { ...items[index], ...changes, updatedAt: new Date().toISOString() };
+          const next = [...items];
+          next[index] = updated;
+          write(next);
 
-        return updated;
-      });
+          return updated;
+        },
+      );
     },
 
     remove(id) {
-      return request({ method: 'DELETE', url: `/${label}/${id}` }, () => {
-        const items = read();
-        const next = items.filter((item) => item.id !== id);
+      return request(
+        { method: 'DELETE', url: `/${label}/${id}`, permission: permissions.remove },
+        () => {
+          const items = read();
+          const next = items.filter((item) => item.id !== id);
 
-        if (next.length === items.length) {
-          throw new Error('That record no longer exists.');
-        }
+          if (next.length === items.length) {
+            throw new Error('That record no longer exists.');
+          }
 
-        write(next);
-        return id;
-      });
+          write(next);
+          return id;
+        },
+      );
     },
   };
 }

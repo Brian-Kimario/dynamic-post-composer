@@ -1,5 +1,6 @@
-import { createAsyncThunk, createSlice, isRejected } from '@reduxjs/toolkit';
+import { createAsyncThunk, createSelector, createSlice, isRejected } from '@reduxjs/toolkit';
 import { login, userFromClaims, verifyAccessToken } from '../services/authApi';
+import { permissionsForRole, roleHasPermission } from '../config/permissions';
 import { decodeToken } from '../services/jwt';
 import { tokenStorage } from '../services/tokenStorage';
 
@@ -164,5 +165,33 @@ export const selectAuthNotice = (state) => state.auth.notice;
  */
 export const selectAccessToken = (state) => state.auth.token;
 export const selectTokenClaims = (state) => state.auth.claims;
+
+/* -------------------------------------------------------------------------- */
+/* Authorization                                                               */
+/* -------------------------------------------------------------------------- */
+
+export const selectCurrentRole = (state) => state.auth.user?.role ?? null;
+
+/**
+ * The permissions the signed-in role holds, memoized so the array keeps a stable
+ * identity between renders. Without `createSelector` this would return a new
+ * array every time and re-render every component reading it on every dispatch.
+ */
+export const selectPermissions = createSelector([selectCurrentRole], (role) =>
+  role ? permissionsForRole(role) : [],
+);
+
+/**
+ * The check components actually use, expressed as a curried selector so it can
+ * be passed straight to `useSelector`:
+ *
+ *   const canPublish = useSelector(selectHasPermission(PERMISSION.POST_PUBLISH));
+ *
+ * The role comes from the store, which is populated from verified token claims —
+ * so a user cannot grant themselves anything by editing local state. Nothing
+ * outside this file and `permissions.js` ever compares a role by name.
+ */
+export const selectHasPermission = (permission) => (state) =>
+  roleHasPermission(selectCurrentRole(state), permission);
 
 export default authSlice.reducer;
