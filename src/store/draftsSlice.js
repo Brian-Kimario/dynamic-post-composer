@@ -1,5 +1,6 @@
 import { createAsyncThunk, createEntityAdapter, createSlice } from '@reduxjs/toolkit';
 import { draftsApi } from '../services/draftsApi';
+import { isSessionEnded } from './authSlice';
 
 export const REQUEST_STATUS = {
   LOADING: 'loading',
@@ -108,6 +109,16 @@ const draftsSlice = createSlice({
       .addCase(deleteDraft.rejected, (state, action) => {
         state.pendingIds = state.pendingIds.filter((id) => id !== action.meta.arg);
         state.actionError = action.error.message;
+      })
+
+      // Nothing loaded here belongs to whoever signs in next. Back to `loading`
+      // rather than `ready`, because an empty list is not a fact we have.
+      .addMatcher(isSessionEnded, (state) => {
+        draftsAdapter.removeAll(state);
+        state.status = REQUEST_STATUS.LOADING;
+        state.error = null;
+        state.actionError = null;
+        state.pendingIds = [];
       });
   },
 });

@@ -6,10 +6,11 @@ Compose a single draft and check it against the character limits of Facebook, X,
 Instagram, with live character counting, warning and error states, and accessible feedback.
 
 Drafts can be saved, listed, edited and deleted, and they persist in the browser across reloads.
-Application state is centralized in a Redux Toolkit store with normalized entity data.
+Application state is centralized in a Redux Toolkit store with normalized entity data, and access to
+it is gated behind a JWT-based login with stateless session handling.
 
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1, 1.1.2, 1.2.1 and 1.2.2**.
+**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2 and 1.3.1**.
 
 ---
 
@@ -46,12 +47,27 @@ efficient rendering strategies.
 Covers derived state, memoized selectors with `createSelector`, a derived analytics view, and
 measured re-render and recomputation reductions.
 
+### Experiment 1.3.1 — JWT Authentication
+
+**Aim:** To design and implement a secure authentication system using JWT for user login and session
+management.
+
+Covers the login interface, credential validation against a mock directory, real HS256 token
+generation and verification, secure token storage, attaching the token to every request, and
+decoding it to recover the signed-in user.
+
 ### Scope
 
-There is still no real backend, no authentication and no social media integration — publishing is
-simulated in the browser, and everything is stored locally. Retry logic and toast notifications
-belong to Experiment 1's Assignment 4 and are deliberately not implemented yet. The architecture is
-arranged so those can be added without restructuring what exists.
+Authentication arrived in 1.3.1, but there is still no real backend and no social media integration
+— publishing is simulated in the browser, everything is stored locally, and the "auth server" is a
+module (`services/authApi.js`) rather than a remote host. The tokens themselves are not simulated:
+they are real signed JWTs.
+
+**Role-based access control, protected routes and token refresh are deliberately out of scope here.**
+They are Experiment 3.2 and its Assignment 5 in the course material. Roles are already issued inside
+the token so that experiment adds enforcement rather than reissuing identity. Retry logic and toast
+notifications (Experiment 1, Assignment 4) remain unimplemented. The architecture is arranged so all
+of those can be added without restructuring what exists.
 
 ---
 
@@ -99,6 +115,19 @@ arranged so those can be added without restructuring what exists.
 - Expensive grapheme-based over-limit check runs once per data change instead of once per render
 - `React.memo` on list and stat rows, `useCallback` on dispatching handlers
 
+### JWT authentication (1.3.1)
+
+- Login screen with mock credential validation and one-click demo accounts
+- Real `HEADER.PAYLOAD.SIGNATURE` tokens, signed with HMAC-SHA256 via the Web Crypto API
+- Stateless sessions — no session store; identity is derived from the token on every request
+- Token storage choice exposed to the user: `sessionStorage` by default, `localStorage` opt-in
+- Session restored from the stored token on reload, signature and expiry re-verified first
+- Every data request goes through one client that attaches `Authorization: Bearer …`
+- Requests with a missing, tampered or expired token are refused before they touch data
+- Expiry ends the session automatically and explains why, instead of failing silently
+- Records are stamped with the author taken from the verified token, never from the caller
+- Session panel showing the live token, its three segments, decoded claims and expiry countdown
+
 ---
 
 ## Tech Stack
@@ -114,11 +143,18 @@ arranged so those can be added without restructuring what exists.
 | **Redux Toolkit**  | Centralized store, normalized entity state and async thunks (added in 1.2.1).                           |
 | **React-Redux**    | `useSelector` / `useDispatch` bindings between the store and components.                                |
 | **Reselect**       | Memoized selectors via `createSelector` — ships inside Redux Toolkit, so it is not a separate install.  |
+| **Web Crypto API** | HMAC-SHA256 signing and verification for JWTs — a browser built-in, not a dependency (added in 1.3.1).  |
 
 Up to Experiment 1.1.2 the app used only `useState` and `useReducer`, which was the right call for
 two state owners that barely interacted. Redux Toolkit was introduced in 1.2.1 once three domains
 (platforms, drafts, published posts) needed to be read by components in different parts of the tree.
 Experiment 1.2.2 added no new dependency — `createSelector` comes with Redux Toolkit.
+
+Experiment 1.3.1 added none either. A JWT library (`jsonwebtoken`, `jose`) would have hidden exactly
+the parts the experiment is about, and `crypto.subtle` already implements the only primitive needed.
+Axios was also skipped: there is no HTTP layer to configure yet, so `services/apiClient.js`
+implements the interceptor _pattern_ over the existing mock transport instead of adding a client that
+would have nothing to talk to.
 
 ---
 
@@ -208,7 +244,8 @@ the alternative, an effect that copies props into state, is a well-known source 
 ```
 src/
 ├── store/
-│   ├── index.js                      configureStore — composes the five slices
+│   ├── index.js                      configureStore — composes the six slices
+│   ├── authSlice.js                  Session state: status, user, token, claims
 │   ├── platformsSlice.js             Normalized platforms + selected platform
 │   ├── draftsSlice.js                Normalized drafts + async CRUD thunks
 │   ├── postsSlice.js                 Normalized published posts + thunks
@@ -216,6 +253,10 @@ src/
 │   ├── filtersSlice.js               UI state: search, platform filter, paging
 │   └── selectors.js                  Memoized derived state (createSelector)
 ├── components/
+│   ├── auth/
+│   │   ├── LoginScreen.jsx           Credentials form + demo accounts
+│   │   ├── AccountBadge.jsx          Signed-in user and sign out (header)
+│   │   └── SessionPanel.jsx          Live token, decoded claims, expiry countdown
 │   ├── workspace/
 │   │   └── ComposerWorkspace.jsx     Layout only
 │   ├── post-composer/
@@ -240,13 +281,17 @@ src/
 ├── hooks/
 │   └── usePostComposer.js            Composer logic on top of the store
 ├── services/
+│   ├── jwt.js                        Sign, decode and verify HS256 tokens
+│   ├── authApi.js                    Mock auth server — user directory + secret
+│   ├── tokenStorage.js               Where the token lives, and the trade-off
+│   ├── apiClient.js                  Request pipeline: attach token, verify, 401
 │   ├── localCollection.js            Mock async CRUD factory over localStorage
 │   ├── draftsApi.js                  Drafts instance
 │   └── postsApi.js                   Published posts instance
 ├── utils/
 │   ├── postValidation.js             Pure validation logic
 │   └── draftFormatting.js            Excerpts and relative timestamps
-├── App.jsx                           Application shell
+├── App.jsx                           Application shell + session gate
 ├── main.jsx                          React entry point + Provider
 └── index.css                         Tailwind import and design tokens
 ```
@@ -412,6 +457,117 @@ shared rather than per-instance.
 
 ---
 
+## Authentication Model
+
+### The flow
+
+```
+LoginScreen        credentials (local state, never dispatched)
+      ↓
+authApi.login      directory lookup → signToken(HS256)      ← the only holder of the secret
+      ↓
+tokenStorage       sessionStorage, or localStorage if "keep me signed in"
+      ↓
+authSlice          status: authenticated, user + claims decoded from the token
+      ↓
+apiClient          every request: Authorization: Bearer <token>
+      ↓
+verifyAccessToken  signature + expiry checked before the handler runs
+      ↓
+handler(user)      identity comes from the token, never from the caller
+```
+
+Nothing in that chain consults a session table, which is what "stateless" means in practice: the
+same token verifies against the same secret anywhere, so any instance of a service can answer "who
+is this?" without shared memory. It is also why signing out is purely a client-side act — there is
+no server-side session to destroy.
+
+### The token
+
+`services/jwt.js` produces a real JWT, not a stand-in. It is base64url-encoded, signed with
+HMAC-SHA256 through `crypto.subtle`, and verifies in any JWT debugger:
+
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9        header    { alg: 'HS256', typ: 'JWT' }
+.eyJzdWIiOiJ1c3JfYXZhX21pdGNoZWxsIiwi…      payload   claims
+.Ji-c-M6bX-5Ztie8ILXYcj_dIRg7o0wwXjStuYPxUIk  signature HMAC over header.payload
+```
+
+```js
+{
+  sub:   'usr_ava_mitchell',   // registered claim: who the token is about
+  name:  'Ava Mitchell',
+  email: 'ava@dpc.dev',
+  role:  'admin',              // issued now, enforced in 3.2
+  iat:   1785598468,           // NumericDate — seconds, not milliseconds
+  exp:   1785599068            // 10 minutes later
+}
+```
+
+`decodeToken` and `verifyToken` are deliberately separate functions. Decoding is just base64 —
+anyone holding the token can read the payload, which is why nothing sensitive goes in it. Verifying
+is the part that establishes trust, and it happens in this order for a reason: the signature is
+checked **first**, because `exp` is a claim, and an unverified claim is something the bearer could
+have edited. Tokens declaring any algorithm other than `HS256` are rejected outright, which is what
+closes the `alg: none` family of attacks.
+
+### Where the token lives
+
+| Storage          | Survives              | Exposed to JS | Used here                 |
+| ---------------- | --------------------- | ------------- | ------------------------- |
+| `sessionStorage` | reload, not tab close | yes           | **default**               |
+| `localStorage`   | browser restart       | yes           | opt-in via "keep me in"   |
+| HTTP-only cookie | per cookie policy     | **no**        | needs a backend — not yet |
+
+The cookie is the option that actually defends against XSS, and it is unavailable without a server
+to set it, so `sessionStorage` is the default: the narrower blast radius of the two that remain, and
+it makes closing the tab a real sign-out. The checkbox is honest about the trade — the persistence
+the user is asking for is exactly the persistence an attacker would inherit. All of it is behind
+`services/tokenStorage.js`, so revisiting the decision means editing one file.
+
+### The interceptor pattern without Axios
+
+`services/apiClient.js` implements the four stages an Axios interceptor pair would occupy:
+
+1. **Request** — attach `Authorization: Bearer <token>`, read from storage.
+2. **Transit** — simulated latency.
+3. **Server** — verify the token and derive the user; refuse with a 401-equivalent otherwise.
+4. **Response** — on that refusal, discard the dead token and end the session.
+
+Doing it centrally is the entire argument for interceptors: no feature module can forget the header,
+and there is exactly one definition of what a 401 means. `authSlice` reacts to it with a matcher on
+`action.error.name === 'UnauthorizedError'`, so expiry handling lives in one place rather than in
+every thunk. Swapping in `axios.create()` later changes this file's internals and nothing else.
+
+The handler receives the user **derived from the token**, so `create()` stamps `authorId` from
+claims rather than from its arguments — a component has no way to write a record as somebody else,
+because it never gets to say who it is.
+
+### Three states, not two booleans
+
+`authSlice` models `restoring → anonymous | authenticating → authenticated`. The `restoring` state
+exists because verifying a stored token is asynchronous: without it the app would render the login
+screen for a frame on every reload before discovering the user was signed in. A pair of
+`isLoading` / `isLoggedIn` booleans would also permit combinations that cannot occur.
+
+Ending a session clears the data slices too, via a shared `isSessionEnded` matcher. Otherwise the
+drafts loaded for one user would still be in memory when the next signs in on the same browser.
+
+### What is honest about this, and what is not
+
+The mechanism is real; the trust boundary is not. The token is signed in the browser with a secret
+the browser can read, so the signature proves nothing against a determined user — anyone can open
+DevTools and mint themselves an `admin` token. That is unavoidable without a server, and it is why
+`authApi.js` is the sole holder of the secret and the directory: it marks precisely the line that
+moves server-side later, at which point `jwt.js` moves with it and the store, the API client and the
+UI are untouched, because none of them ever saw a password or a secret.
+
+The same caveat applies to the client-side checks generally. Client-side enforcement is a UX
+affordance — it keeps users out of states they cannot use. It is never the security boundary; the
+server's own check is.
+
+---
+
 ## Validation Model
 
 `validatePost(content, platform)` is a pure function: same inputs, same output, no React involved.
@@ -497,6 +653,12 @@ reads from the returned object, additions should be additive rather than changes
   memo actually holds. One without the other would do nothing.
 - **Resetting state with `key`** — opening a draft remounts the composer rather than syncing props
   into state with an effect.
+- **Conditional rendering as a gate** — `App` renders the login screen, a restoring state or the
+  workspace; the composer is only ever mounted for a signed-in user, so it never has to ask.
+- **Action matchers** — `addMatcher` lets one slice react to actions from any other, which is how
+  session expiry is handled once instead of in every thunk.
+- **Web APIs from React** — `crypto.subtle` and `sessionStorage` are wrapped in service modules, so
+  components never touch a browser API directly.
 
 ---
 
@@ -560,6 +722,30 @@ its own actions, so it has no function props at all.
 **Persistence hides behind an async API.** Routing storage through `services/localCollection.js`
 means components already handle latency, loading states and failure — the parts that are genuinely
 hard about a real backend — so that migration becomes a change to one file.
+
+**Real tokens, not simulated ones.** The experiment could have been satisfied with a
+`JSON.stringify` "token", and that would have taught none of it — the three segments, the registered
+claims, the signature check and the `alg` confusion attack are the content. `crypto.subtle` makes a
+genuine HS256 token about forty lines of code, so the mock stops at the trust boundary rather than
+at the format.
+
+**No JWT library, no Axios.** Both would have hidden the mechanism behind an API call at exactly the
+point the mechanism is the subject. Axios in particular has nothing to talk to yet; `apiClient.js`
+reproduces the interceptor pattern over the existing transport, so adopting Axios later is a
+substitution rather than a redesign.
+
+**The secret and the directory live in one module.** `services/authApi.js` holds both, not because
+that is secure — it is not, and the README says so — but because it draws the line that moves to the
+server later. Every other module is written as a client that only ever holds a token.
+
+**Credentials never enter Redux.** Email and password stay in `LoginScreen`'s local state. A
+password in the store is a password in the DevTools action log and in any state snapshot; the store
+holds the resulting token instead.
+
+**Client-side checks are UX, not security.** The gate, the disabled buttons and the role claim keep
+users out of states they cannot use. The check that matters is the one `apiClient` performs before
+running a handler — and in a real system, the one the server performs. Both layers exist here on
+purpose, which is the defence-in-depth idea applied rather than described.
 
 ---
 
@@ -706,6 +892,35 @@ removed before committing. Dataset: 40 drafts of ~945 characters.
 | Responsive                         | 375px, four panels stack, no horizontal overflow                   |
 | Console                            | No errors or React warnings                                        |
 
+### JWT authentication (1.3.1)
+
+Verified in the browser against the running dev server. The signature check was confirmed
+_independently_ — the token was copied out of the app and re-verified with a separate HMAC-SHA256
+implementation outside the browser, so "it works" does not rest on the same code that produced it.
+
+| Case                         | Result                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------- |
+| Unauthenticated app          | Workspace never mounts; login screen renders instead                            |
+| Wrong password               | "Email or password is incorrect."; no token written                             |
+| Unknown email                | Same message as a wrong password — no user enumeration                          |
+| Valid login                  | Workspace renders; drafts and posts load, so the requests passed verification   |
+| Token structure              | Three segments; header `{ alg: 'HS256', typ: 'JWT' }`, `exp - iat` = 600s       |
+| Signature (external check)   | Re-signed with the secret in Python — **matches**                               |
+| Storage default              | `sessionStorage` only; `localStorage` empty                                     |
+| "Keep me signed in"          | `localStorage` only; `sessionStorage` empty — never both                        |
+| Authenticated write          | Saved draft stamped `authorId: usr_ava_mitchell` from the token, not the caller |
+| Reload                       | Session restored from the stored token; no login screen, no flash               |
+| Expired token (real, signed) | Injected into storage → next save refused, session ended, notice shown          |
+| Refused request              | Draft count unchanged — the handler never ran                                   |
+| Post-401 cleanup             | Token removed from **both** stores by the response interceptor                  |
+| Second user                  | Signed in as `noah@dpc.dev`; token payload carried `role: editor`               |
+| Console                      | No errors or React warnings                                                     |
+| Lint / build                 | `npm run lint` clean, `npm run build` succeeds                                  |
+
+The expired-token case used a genuinely signed token with `exp` in the past, minted outside the app
+with the same secret — so it exercised the expiry branch specifically, not the invalid-signature
+branch.
+
 ---
 
 ## Future Experiments
@@ -732,8 +947,17 @@ The current structure leaves specific places for later work:
   storage; swapping it for HTTP calls needs no component or slice changes, because the thunks
   already model latency and failure. `postValidation.js` is framework-free and can be shared with
   the server so the same rules run in both places.
-- **Authentication and routing** — `App.jsx` is intentionally free of feature state, so a router
-  and auth provider can wrap it without disturbing the composer. Auth would be a new slice.
+- **RBAC and protected routes** (Experiment 3.2) — the `role` claim is already issued and read into
+  `auth.user`. What is missing is a permissions map and route-level guards; the gate in `App.jsx` is
+  the same check a `ProtectedRoute` performs, applied once at the root instead of per route.
+- **Token refresh** (Experiment 3.2, Assignment 5) — `apiClient.js` currently discards a dead token
+  at the one point that detects it. A refresh flow replaces that single branch: request a new access
+  token, then retry the original request.
+- **A real auth backend** — deleting `services/authApi.js` and pointing `login` at an endpoint is
+  the whole migration. `jwt.js` moves server-side with it; the store, the API client and the UI do
+  not change, because none of them ever handled a password or the secret.
+- **HTTP-only cookies** — the storage decision is isolated in `tokenStorage.js`, so once a backend
+  can set a cookie, that file shrinks rather than spreads.
 
 ---
 
