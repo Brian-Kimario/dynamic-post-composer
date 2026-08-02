@@ -1,5 +1,6 @@
 import { useSelector } from 'react-redux';
 import { selectComposerSessionId } from '../../store/composerSlice';
+import ContentInsightsPanel from '../insights/ContentInsightsPanel';
 import DraftsPanel from '../drafts/DraftsPanel';
 import PublishedPostsPanel from '../posts/PublishedPostsPanel';
 import PostComposer from '../post-composer/PostComposer';
@@ -18,6 +19,7 @@ export default function ComposerWorkspace() {
   return (
     <div className="flex flex-col gap-5">
       <PostComposer key={sessionId} />
+      <ContentInsightsPanel />
       <DraftsPanel />
       <PublishedPostsPanel />
     </div>

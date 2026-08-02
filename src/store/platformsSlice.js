@@ -31,8 +31,13 @@ const platformsSlice = createSlice({
 
 export const { platformSelected } = platformsSlice.actions;
 
-export const { selectAll: selectAllPlatforms, selectById: selectPlatformById } =
-  platformsAdapter.getSelectors((state) => state.platforms);
+export const {
+  selectAll: selectAllPlatforms,
+  selectById: selectPlatformById,
+  // The raw lookup table. Selectors that need limits for many platforms at once
+  // take this rather than calling selectById in a loop.
+  selectEntities: selectPlatformEntities,
+} = platformsAdapter.getSelectors((state) => state.platforms);
 
 export const selectSelectedPlatformId = (state) => state.platforms.selectedPlatformId;
 

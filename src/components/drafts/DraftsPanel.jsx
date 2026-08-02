@@ -1,20 +1,30 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { AlertCircle, FileText, Loader2, RotateCw, Search, X } from 'lucide-react';
 import {
   actionErrorDismissed,
   fetchDrafts,
-  selectAllDrafts,
+  selectDraftCount,
   selectDraftsActionError,
   selectDraftsError,
   selectDraftsStatus,
   REQUEST_STATUS,
 } from '../../store/draftsSlice';
+import {
+  moreDraftsRequested,
+  platformFilterChanged,
+  searchTermChanged,
+  selectPlatformFilter,
+  selectSearchTerm,
+} from '../../store/filtersSlice';
+import {
+  selectFilteredDraftCount,
+  selectHasMoreDrafts,
+  selectHiddenDraftCount,
+  selectVisibleDraftIds,
+} from '../../store/selectors';
 import { selectAllPlatforms } from '../../store/platformsSlice';
 import DraftListItem from './DraftListItem';
-
-/** Rendered in pages so a large draft list never mounts hundreds of rows at once. */
-const PAGE_SIZE = 6;
 
 function DraftsEmptyState({ hasDrafts }) {
   return (
@@ -32,43 +42,49 @@ function DraftsEmptyState({ hasDrafts }) {
   );
 }
 
+/**
+ * Reads only what it renders. The filtering, paging and counting all happen in
+ * memoized selectors, so this component holds no derived state of its own and
+ * has no `useMemo` left in it.
+ *
+ * Selecting `selectVisibleDraftIds` rather than whole draft objects means the
+ * panel re-renders only when the *set of visible ids* changes — editing a
+ * draft's text re-renders that one row and nothing else.
+ */
 export default function DraftsPanel() {
   const dispatch = useDispatch();
 
-  const drafts = useSelector(selectAllDrafts);
   const status = useSelector(selectDraftsStatus);
   const error = useSelector(selectDraftsError);
   const actionError = useSelector(selectDraftsActionError);
   const platforms = useSelector(selectAllPlatforms);
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('all');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const totalDraftCount = useSelector(selectDraftCount);
+  const filteredCount = useSelector(selectFilteredDraftCount);
+  const visibleDraftIds = useSelector(selectVisibleDraftIds);
+  const hasMore = useSelector(selectHasMoreDrafts);
+  const hiddenCount = useSelector(selectHiddenDraftCount);
+
+  const searchTerm = useSelector(selectSearchTerm);
+  const platformFilter = useSelector(selectPlatformFilter);
 
   // The panel owns loading its own data, so no parent has to orchestrate it.
   useEffect(() => {
     dispatch(fetchDrafts());
   }, [dispatch]);
 
-  /**
-   * Search and filter are view concerns, so they stay in local state. Only the
-   * derived list is memoised — the entity adapter's `sortComparer` already keeps
-   * `ids` newest-first, so no sorting is needed here any more.
-   *
-   * Note this maps to ids: rows look their own entity up in the store, so the
-   * list passes identifiers rather than objects.
-   */
-  const filteredDraftIds = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-
-    return drafts
-      .filter((draft) => platformFilter === 'all' || draft.platformId === platformFilter)
-      .filter((draft) => query === '' || draft.content.toLowerCase().includes(query))
-      .map((draft) => draft.id);
-  }, [drafts, platformFilter, searchTerm]);
-
-  const visibleIds = filteredDraftIds.slice(0, visibleCount);
-  const hasMore = filteredDraftIds.length > visibleCount;
+  // Stable identities so the memoized rows below are never invalidated by a
+  // freshly created handler.
+  const handleSearchChange = useCallback(
+    (event) => dispatch(searchTermChanged(event.target.value)),
+    [dispatch],
+  );
+  const handlePlatformChange = useCallback(
+    (event) => dispatch(platformFilterChanged(event.target.value)),
+    [dispatch],
+  );
+  const handleShowMore = useCallback(() => dispatch(moreDraftsRequested()), [dispatch]);
+  const handleRetry = useCallback(() => dispatch(fetchDrafts()), [dispatch]);
 
   return (
     <section
@@ -80,12 +96,12 @@ export default function DraftsPanel() {
           Saved drafts
           {status === REQUEST_STATUS.READY && (
             <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-              {drafts.length}
+              {totalDraftCount}
             </span>
           )}
         </h2>
 
-        {status === REQUEST_STATUS.READY && drafts.length > 0 && (
+        {status === REQUEST_STATUS.READY && totalDraftCount > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <Search
@@ -95,10 +111,7 @@ export default function DraftsPanel() {
               <input
                 type="search"
                 value={searchTerm}
-                onChange={(event) => {
-                  setSearchTerm(event.target.value);
-                  setVisibleCount(PAGE_SIZE);
-                }}
+                onChange={handleSearchChange}
                 placeholder="Search drafts"
                 aria-label="Search drafts"
                 className="w-40 rounded-lg border border-slate-300 py-1.5 pr-2 pl-8 text-xs text-slate-900 transition outline-none placeholder:text-slate-400 focus-visible:border-slate-900 focus-visible:ring-2 focus-visible:ring-slate-900/20"
@@ -107,10 +120,7 @@ export default function DraftsPanel() {
 
             <select
               value={platformFilter}
-              onChange={(event) => {
-                setPlatformFilter(event.target.value);
-                setVisibleCount(PAGE_SIZE);
-              }}
+              onChange={handlePlatformChange}
               aria-label="Filter drafts by platform"
               className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-900 transition outline-none focus-visible:border-slate-900 focus-visible:ring-2 focus-visible:ring-slate-900/20"
             >
@@ -164,7 +174,7 @@ export default function DraftsPanel() {
             </p>
             <button
               type="button"
-              onClick={() => dispatch(fetchDrafts())}
+              onClick={handleRetry}
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               <RotateCw aria-hidden="true" className="size-3.5" />
@@ -174,12 +184,12 @@ export default function DraftsPanel() {
         )}
 
         {status === REQUEST_STATUS.READY &&
-          (filteredDraftIds.length === 0 ? (
-            <DraftsEmptyState hasDrafts={drafts.length > 0} />
+          (filteredCount === 0 ? (
+            <DraftsEmptyState hasDrafts={totalDraftCount > 0} />
           ) : (
             <>
               <ul className="flex flex-col gap-2.5">
-                {visibleIds.map((draftId) => (
+                {visibleDraftIds.map((draftId) => (
                   <DraftListItem key={draftId} draftId={draftId} />
                 ))}
               </ul>
@@ -187,10 +197,10 @@ export default function DraftsPanel() {
               {hasMore && (
                 <button
                   type="button"
-                  onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                  onClick={handleShowMore}
                   className="mt-3 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 focus-visible:outline-none"
                 >
-                  Show more ({filteredDraftIds.length - visibleCount} remaining)
+                  Show more ({hiddenCount} remaining)
                 </button>
               )}
             </>
