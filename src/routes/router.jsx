@@ -7,6 +7,7 @@ import RequirePermission from './RequirePermission';
 import LandingRedirect from './LandingRedirect';
 import LoginPage from '../pages/LoginPage';
 import ComposePage from '../pages/ComposePage';
+import CalendarPage from '../pages/CalendarPage';
 import LibraryPage from '../pages/LibraryPage';
 import InsightsPage from '../pages/InsightsPage';
 import SessionPage from '../pages/SessionPage';
@@ -53,7 +54,10 @@ export const router = createBrowserRouter([
               },
               {
                 element: <RequirePermission permission={PERMISSION.CONTENT_READ} />,
-                children: [{ path: 'library', element: <LibraryPage /> }],
+                children: [
+                  { path: 'calendar', element: <CalendarPage /> },
+                  { path: 'library', element: <LibraryPage /> },
+                ],
               },
               {
                 element: <RequirePermission permission={PERMISSION.INSIGHTS_VIEW} />,

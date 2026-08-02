@@ -2,11 +2,13 @@ import { configureStore } from '@reduxjs/toolkit';
 import { setSessionRefreshHandler } from '../services/apiClient';
 import { decodeToken } from '../services/jwt';
 import authReducer, { sessionRenewed } from './authSlice';
+import calendarReducer from './calendarSlice';
 import composerReducer from './composerSlice';
 import draftsReducer from './draftsSlice';
 import filtersReducer from './filtersSlice';
 import platformsReducer from './platformsSlice';
 import postsReducer from './postsSlice';
+import scheduleReducer from './scheduleSlice';
 
 /**
  * One store, composed from domain slices.
@@ -26,8 +28,10 @@ export const store = configureStore({
     platforms: platformsReducer,
     drafts: draftsReducer,
     posts: postsReducer,
+    schedule: scheduleReducer,
     composer: composerReducer,
     filters: filtersReducer,
+    calendar: calendarReducer,
   },
 });
 

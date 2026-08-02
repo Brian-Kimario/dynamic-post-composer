@@ -1,11 +1,12 @@
 import { useSelector } from 'react-redux';
 import { NavLink } from 'react-router';
-import { BarChart3, KeyRound, Library, PenLine, ShieldCheck } from 'lucide-react';
+import { BarChart3, CalendarRange, KeyRound, Library, PenLine, ShieldCheck } from 'lucide-react';
 import { selectPermissions } from '../../store/authSlice';
 import { NAV_ITEMS } from '../../routes/navigation';
 
 const ICONS = {
   compose: PenLine,
+  calendar: CalendarRange,
   library: Library,
   insights: BarChart3,
   admin: ShieldCheck,

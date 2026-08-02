@@ -7,6 +7,7 @@ import PostEditor from './PostEditor';
 import PublishButton from './PublishButton';
 import PublishSuccessNotice from './PublishSuccessNotice';
 import SaveDraftButton from './SaveDraftButton';
+import ScheduleControl from './ScheduleControl';
 import ValidationMessage from './ValidationMessage';
 
 // Stable ids shared between the textarea's aria-describedby and the elements
@@ -29,6 +30,7 @@ export default function PostComposer() {
     editingDraftId,
     isSavingDraft,
     saveCurrentDraft,
+    clearAfterScheduling,
     stopEditing,
     publishStatus,
     lastPublishedPost,
@@ -107,6 +109,14 @@ export default function PostComposer() {
                 canPublish={validation.isValid}
                 publishStatus={publishStatus}
                 onPublish={publish}
+              />
+              <ScheduleControl
+                content={content}
+                platformId={platform.id}
+                // Same bar as publishing: scheduling is publishing later, so an
+                // over-limit post is no more acceptable then than it is now.
+                canSchedulePost={validation.isValid}
+                onScheduled={clearAfterScheduling}
               />
               <SaveDraftButton
                 isEditing={isEditingDraft}

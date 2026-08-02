@@ -133,6 +133,22 @@ export function usePostComposer() {
     validation.isValid,
   ]);
 
+  /**
+   * Scheduling ends the composing session the same way publishing does: the post
+   * has a destination now, so the working copy has served its purpose. Shared
+   * with `publish` rather than reimplemented, so the two cannot drift apart.
+   *
+   * Unbind rather than reset — `composerReset` bumps the session id, which would
+   * remount this component and discard the confirmation the user just earned.
+   */
+  const clearAfterScheduling = useCallback(() => {
+    if (editingDraftId) {
+      dispatch(deleteDraft(editingDraftId));
+      dispatch(composerUnbound());
+    }
+    setContent('');
+  }, [dispatch, editingDraftId]);
+
   const stopEditing = useCallback(() => dispatch(composerReset()), [dispatch]);
 
   const dismissSuccessNotice = useCallback(() => {
@@ -149,6 +165,7 @@ export function usePostComposer() {
     editingDraftId,
     isSavingDraft,
     saveCurrentDraft,
+    clearAfterScheduling,
     stopEditing,
     publishStatus,
     lastPublishedPost,
