@@ -1692,3 +1692,63 @@ experiment.
 
 The Spring Boot REST API lives in [`backend/`](backend/README.md) (`cd backend && mvn spring-boot:run`, port 8080).
 The UI still uses its localStorage mock services; wiring them to the API is a later step.
+
+## Experiment 2.2.2 - Query optimisation, caching and benchmarking
+
+### N+1 fixed with JOIN FETCH
+`Post.author` is a lazy `@ManyToOne`. The default `findAll(Pageable)` plus `post.getAuthor().getName()` issues
+1 page query + 1 count + one author SELECT per distinct author in the page. `PostRepository.search` uses
+`join fetch p.author` (with an explicit `countQuery`, because a fetch join cannot be counted) so a page is exactly
+**2 statements**; `findById` uses `@EntityGraph(attributePaths = "author")` so one post is **1 statement**.
+`QueryOptimizationTest` proves this with Hibernate statistics, including `sort=author`.
+
+### Caching (Ehcache 3 via JCache)
+Configured in `src/main/resources/ehcache.xml`:
+
+| Cache | TTL | Max entries | Holds |
+|---|---|---|---|
+| `post` | 10 min | 2000 | single post by id |
+| `postPages` | 60 s | 500 | list pages keyed by (status, platform, pageable) |
+| `stats` | 5 min | 10 | aggregate stats |
+
+Services return immutable DTOs (cached values are never live entities). Writes evict the affected `post` entry and
+clear `postPages` and `stats`; the cache advisor runs outside the transaction so eviction happens after commit.
+Disable for comparison with `--spring.cache.type=none`.
+
+### Native SQL
+`GET /api/v1/stats?topAuthors=5&topPosts=5` runs three native queries mapped to projection interfaces: counts per
+platform/status, top authors by post count, and the top-liked published posts (`ORDER BY likes DESC LIMIT n`, backed
+by `idx_posts_likes`) - the "top-performing posts" query from the lab sheet.
+
+### Benchmark with JMeter
+Seed data and start the app (H2, 5,000 posts / 50 authors):
+```bash
+mvn spring-boot:run -Dspring-boot.run.arguments="--app.seed.enabled=true"
+```
+Run the plan headless (once with caching, once with `--spring.cache.type=none`):
+```bash
+jmeter -n -t benchmark/posts-read.jmx -Jthreads=50 -Jloops=200 -l results.jtl -e -o report/
+```
+Compare average/p95 latency and throughput in `report/index.html`. Record your own numbers here:
+
+| Run | Avg (ms) | p95 (ms) | Throughput (req/s) |
+|---|---|---|---|
+| No cache | | | |
+| Ehcache | | | |
+
+## Lab sheet traceability (Experiments 5 and 6)
+
+| Lab requirement | Where |
+|---|---|
+| Exp 5 - CRUD + scheduling endpoints | `PostController`, `ScheduleController` (`/api/v1/...`) |
+| Exp 5 - Bean Validation, invalid-input tests | `PostRequest` etc., `PostApiIntegrationTest` |
+| Exp 5 - `ApiResponse` (`status`, `message`, `data`) | `ApiResponse` (adds `success`, `correlationId`, `timestamp`) |
+| Exp 5 - CORS | `CorsConfig` |
+| Exp 5 - logging filter (URI + duration) | `RequestLoggingFilter` |
+| Exp 5 - `@ControllerAdvice` validation + generic | `GlobalExceptionHandler` |
+| Exp 5 - MDC correlation ID in logs | `CorrelationIdFilter`, `logback-spring.xml` |
+| Exp 6.1 - paginated + sorted `GET /posts` | `PostController`, `PageResponse`, `PageableSanitizer` |
+| Exp 6.2 - N+1 identified and fixed with JOIN FETCH | `PostRepository.search`, `QueryOptimizationTest` |
+| Exp 6.2 - Ehcache for analytics data | `ehcache.xml`, `StatsService` |
+| Exp 6.2 - native query, top posts | `PostRepository.topPosts` |
+| Exp 6.2 - JMeter before/after caching | `benchmark/posts-read.jmx` |

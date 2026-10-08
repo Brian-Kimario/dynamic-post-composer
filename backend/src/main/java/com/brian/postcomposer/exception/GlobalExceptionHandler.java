@@ -37,6 +37,11 @@ public class GlobalExceptionHandler {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage(), null);
     }
 
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<ApiResponse<Void>> invalidRequest(InvalidRequestException e) {
+        return respond(HttpStatus.BAD_REQUEST, e.getMessage(), null);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> validation(MethodArgumentNotValidException e) {
         Map<String, String> errors = new LinkedHashMap<>();

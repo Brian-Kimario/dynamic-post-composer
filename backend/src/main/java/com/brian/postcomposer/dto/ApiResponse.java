@@ -9,12 +9,12 @@ import java.time.Instant;
  * log lines written while serving it (Experiment 2.1.2).
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record ApiResponse<T>(boolean success, String message, T data, String correlationId, Instant timestamp) {
+public record ApiResponse<T>(String status, boolean success, String message, T data, String correlationId, Instant timestamp) {
     public static <T> ApiResponse<T> success(String message, T data) {
-        return new ApiResponse<>(true, message, data, CorrelationId.current(), Instant.now());
+        return new ApiResponse<>("success", true, message, data, CorrelationId.current(), Instant.now());
     }
 
     public static <T> ApiResponse<T> failure(String message, T data) {
-        return new ApiResponse<>(false, message, data, CorrelationId.current(), Instant.now());
+        return new ApiResponse<>("error", false, message, data, CorrelationId.current(), Instant.now());
     }
 }
