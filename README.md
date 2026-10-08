@@ -1687,3 +1687,8 @@ The limits in `platforms.js` are the publicly documented limits for a standard t
 (Facebook 63,206 · X 280 · LinkedIn 3,000 · Instagram 2,200). They are simplified: premium tiers,
 media captions and thread continuations use different limits and are out of scope for this
 experiment.
+
+## Backend (Experiment 2)
+
+The Spring Boot REST API lives in [`backend/`](backend/README.md) (`cd backend && mvn spring-boot:run`, port 8080).
+The UI still uses its localStorage mock services; wiring them to the API is a later step.
