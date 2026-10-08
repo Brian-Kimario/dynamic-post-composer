@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -84,6 +87,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> noRoute(NoResourceFoundException e) {
         return respond(HttpStatus.NOT_FOUND, "No endpoint matches this request", null);
+    }
+
+    // @PreAuthorize failures are thrown inside the controller layer, so without these the catch-all would turn a 403 into a 500.
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> accessDenied(AccessDeniedException e) {
+        return respond(HttpStatus.FORBIDDEN, "You do not have permission to perform this action", null);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiResponse<Void>> authentication(AuthenticationException e) {
+        String message = e instanceof BadCredentialsException ? ("Bad credentials".equals(e.getMessage()) ? "Invalid email or password" : e.getMessage()) : "Authentication required";
+        return respond(HttpStatus.UNAUTHORIZED, message, null);
     }
 
     @ExceptionHandler(Exception.class)

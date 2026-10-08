@@ -24,6 +24,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -33,6 +34,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @SpringBootTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @AutoConfigureMockMvc
+@WithMockUser(roles = "ADMIN") // 2.3: every endpoint needs a signed-in user; these tests are about data, not auth
 class QueryOptimizationTest {
     private static final int AUTHORS = 10;
     private static final int PAGE_SIZE = 10;

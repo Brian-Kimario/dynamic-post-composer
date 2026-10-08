@@ -70,3 +70,44 @@ GET /api/v1/posts?status=DRAFT&platformId=x&page=0&size=20&sort=updatedAt,desc&s
 verbose `Page`. Design notes: the sort whitelist keeps query-string input away from the persistence layer, an `id` tie-breaker is
 appended so pages never overlap or skip rows when many share the sorted value, and `posts` is indexed for the
 `status + updatedAt`, `platformId` and `scheduledFor` access paths. Each page costs two queries: the rows and a `count(*)`.
+
+## 2.3.1 — JWT authentication and RBAC (lab Experiment 7.1)
+
+Every `/api/**` endpoint now requires `Authorization: Bearer <access token>`, except `POST /api/v1/auth/login`, `/refresh` and `/logout`.
+
+| Piece | File |
+|---|---|
+| Stateless, deny-by-default filter chain, BCrypt, `AuthenticationManager` | `security/SecurityConfig.java` |
+| JWT filter (extract, validate, set SecurityContext) | `security/JwtAuthenticationFilter.java` |
+| HS256 issue/verify (issuer, expiry, signature) | `security/JwtService.java` |
+| 401 / 403 JSON envelope from inside the filter chain | `security/RestSecurityHandlers.java` |
+| `@PreAuthorize` role rules | `PostController`, `ScheduleController`, `StatsController`, `CredentialController` |
+
+| Role | Read posts/schedule | Create/edit/schedule | Delete posts | Analytics | Own OAuth credentials |
+|---|---|---|---|---|---|
+| ADMIN | yes | yes | yes | yes | yes |
+| EDITOR | yes | yes | no (403) | yes | yes |
+| VIEWER | yes | no (403) | no (403) | no (403) | no (403) |
+
+Demo accounts (seeded when `app.security.seed-demo-users=true`; password = your `DEMO_PASSWORD`, or a random one printed once in the startup log): `ava@dpc.dev` ADMIN, `noah@dpc.dev` EDITOR, `priya@dpc.dev` VIEWER.
+The H2 console is disabled because it would bypass all of this.
+
+## 2.3.2 — AES encryption and token lifecycle (lab Experiment 7.2)
+
+- **AES-256-GCM** (`crypto/AesGcmEncryptor.java`): random IV per value, auth tag detects tampering. The lab sheet's `Cipher.getInstance("AES")` is ECB mode; GCM is the safe variant of the same algorithm.
+- **Encrypted OAuth credentials**: `OAuthCredential.accessToken/refreshToken` use `EncryptedStringConverter`, so the database holds ciphertext. `/api/v1/credentials` is write-only for tokens (responses never include them) and scoped to the caller.
+- **Access + refresh**: access JWT lives 15 minutes (`app.security.jwt.access-ttl`); the opaque refresh token lives 7 days and is delivered as an `HttpOnly; SameSite=Strict` cookie scoped to `/api/v1/auth` (lab concept 7), stored only as a SHA-256 hash.
+- **Rotation + reuse detection**: `POST /api/v1/auth/refresh` burns the presented token and issues a new pair. Replaying a used token revokes the whole family. `POST /api/v1/auth/logout` revokes it too.
+
+Configuration (never commit real values):
+
+```bash
+export DEMO_PASSWORD=choose-a-demo-password
+export JWT_SECRET=$(openssl rand -base64 48)        # >= 32 bytes, Base64
+export ENCRYPTION_KEY=$(openssl rand -base64 32)    # exactly 32 bytes, Base64
+# behind HTTPS also set: app.security.cookie-secure=true and app.security.seed-demo-users=false
+```
+
+If `JWT_SECRET` / `ENCRYPTION_KEY` are unset, random per-run keys are generated (nothing secret is committed); tokens and stored credentials then do not survive a restart. Changing `ENCRYPTION_KEY` makes existing stored credentials undecryptable (no key rotation yet).
+
+Postman: set the `demoPassword` collection variable, import `postman/post-composer-security.postman_collection.json`, run the logins first (they store `accessToken`); Postman's cookie jar carries the refresh cookie. Tests: `SecurityApiTest` (6) and `TokenLifecycleTest` (9).

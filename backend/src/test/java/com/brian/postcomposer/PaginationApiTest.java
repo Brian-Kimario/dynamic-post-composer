@@ -18,11 +18,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** Experiment 2.2.1 - pagination, sorting and filtering on the list endpoints. */
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser(roles = "ADMIN") // 2.3: every endpoint needs a signed-in user; these tests are about data, not auth
 class PaginationApiTest {
     @Autowired MockMvc mvc;
     @Autowired PostRepository repository;

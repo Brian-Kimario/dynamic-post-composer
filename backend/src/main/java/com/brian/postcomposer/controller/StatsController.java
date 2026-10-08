@@ -6,6 +6,7 @@ import com.brian.postcomposer.service.StatsService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @Validated
@@ -17,6 +18,7 @@ public class StatsController {
     public StatsController(StatsService service) { this.service = service; }
 
     /** Post counts per platform and status, plus the most active authors and the top-liked published posts. */
+    @PreAuthorize("hasAnyRole('ADMIN','EDITOR')")
     @GetMapping
     public ApiResponse<StatsResponse> overview(
             @RequestParam(defaultValue = "5") @Min(value = 1, message = "must be at least 1")
