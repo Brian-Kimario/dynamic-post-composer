@@ -13,6 +13,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 /** Drafts and published posts. {@code GET /api/v1/posts?status=DRAFT|PUBLISHED|SCHEDULED} filters by lifecycle. */
@@ -27,6 +28,7 @@ public class PostController {
      * {@code GET /api/v1/posts?status=DRAFT&platformId=x&page=0&size=20&sort=updatedAt,desc}. Defaults: 20 per page,
      * newest first; {@code size} is capped by {@code spring.data.web.pageable.max-page-size}.
      */
+    @PreAuthorize("hasAnyRole('ADMIN','EDITOR','VIEWER')")
     @GetMapping
     public ApiResponse<PageResponse<PostResponse>> list(
             @RequestParam(required = false) PostStatus status,
@@ -36,22 +38,26 @@ public class PostController {
             service.findPage(status, platformId, pageable));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN','EDITOR','VIEWER')")
     @GetMapping("/{id}")
     public ApiResponse<PostResponse> get(@PathVariable UUID id) {
         return ApiResponse.success("Post retrieved", service.getById(id));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN','EDITOR')")
     @PostMapping
     public ResponseEntity<ApiResponse<PostResponse>> create(@Valid @RequestBody PostRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(ApiResponse.success("Post created", service.create(request)));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN','EDITOR')")
     @PutMapping("/{id}")
     public ApiResponse<PostResponse> update(@PathVariable UUID id, @Valid @RequestBody PostRequest request) {
         return ApiResponse.success("Post updated", service.update(id, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable UUID id) {
         service.delete(id);

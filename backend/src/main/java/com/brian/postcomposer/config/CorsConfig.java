@@ -25,6 +25,7 @@ public class CorsConfig implements WebMvcConfigurer {
             .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
             .allowedHeaders("Content-Type", "Authorization", CorrelationId.HEADER)
             .exposedHeaders(CorrelationId.HEADER)
+            .allowCredentials(true)   // lets the SPA send the HttpOnly refresh cookie; origins are an explicit list, never "*"
             .maxAge(3600);
     }
 }

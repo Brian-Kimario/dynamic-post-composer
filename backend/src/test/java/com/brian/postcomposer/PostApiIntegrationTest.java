@@ -11,11 +11,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser(roles = "ADMIN") // 2.3: every endpoint needs a signed-in user; these tests are about data, not auth
 class PostApiIntegrationTest {
     private static final String ORIGIN = "http://localhost:5173";
     @Autowired MockMvc mvc;
