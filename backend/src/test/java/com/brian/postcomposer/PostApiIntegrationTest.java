@@ -53,7 +53,7 @@ class PostApiIntegrationTest {
             .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("PUBLISHED"));
 
         mvc.perform(get("/api/v1/posts").param("status", "PUBLISHED")).andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[?(@.id=='" + id + "')]").isNotEmpty());
+            .andExpect(jsonPath("$.data.items[?(@.id=='" + id + "')]").isNotEmpty());
 
         mvc.perform(delete("/api/v1/posts/" + id)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/posts/" + id)).andExpect(status().isNotFound());

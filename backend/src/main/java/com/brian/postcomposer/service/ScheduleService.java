@@ -6,10 +6,11 @@ import com.brian.postcomposer.exception.ResourceNotFoundException;
 import com.brian.postcomposer.model.Post;
 import com.brian.postcomposer.model.PostStatus;
 import com.brian.postcomposer.repository.PostRepository;
-import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,9 +23,10 @@ public class ScheduleService {
 
     public ScheduleService(PostRepository repository) { this.repository = repository; }
 
-    /** Ordered by when things happen, like the calendar expects. */
     @Transactional(readOnly = true)
-    public List<Post> findAll() { return repository.findByStatusOrderByScheduledForAsc(PostStatus.SCHEDULED); }
+    public Page<Post> findPage(Pageable pageable) {
+        return repository.search(PostStatus.SCHEDULED, null, PageableSanitizer.sanitize(pageable, PostService.SORTABLE));
+    }
 
     @Transactional(readOnly = true)
     public Post findById(UUID id) {

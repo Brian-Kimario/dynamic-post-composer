@@ -5,7 +5,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "posts")
+@Table(name = "posts", indexes = {
+    // Every list is "filter by status (and platform), order by a timestamp" - these serve that access path.
+    @Index(name = "idx_posts_status_updated", columnList = "status, updatedAt"),
+    @Index(name = "idx_posts_platform", columnList = "platformId"),
+    @Index(name = "idx_posts_scheduled_for", columnList = "scheduledFor")
+})
 public class Post {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

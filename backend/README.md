@@ -21,10 +21,10 @@ Layers: `controller` → `service` → `repository` (+ `dto`, `model`, `config`)
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/posts[?status=DRAFT\|PUBLISHED]` | List drafts / published posts |
+| GET | `/api/v1/posts` | List posts (paged, sortable, filterable — see 2.2.1) |
 | GET / PUT / DELETE | `/api/v1/posts/{id}` | Read / replace / delete |
 | POST | `/api/v1/posts` | Create (`status` defaults to `DRAFT`) |
-| GET | `/api/v1/schedule` | The plan, ordered by `scheduledFor` |
+| GET | `/api/v1/schedule` | The plan, paged, soonest first |
 | POST | `/api/v1/schedule` | Schedule a post |
 | PATCH | `/api/v1/schedule/{id}` | Reschedule (calendar drag-and-drop) — body `{ "scheduledFor": "…Z" }` |
 | DELETE | `/api/v1/schedule/{id}` | Unschedule |
@@ -50,3 +50,23 @@ Try it:
 curl -i -X POST localhost:8080/api/v1/posts -H 'Content-Type: application/json' \
   -H 'X-Correlation-Id: demo-1' -d '{"content":"Hi","platformId":"x","authorName":"Brian"}'
 ```
+
+## 2.2.1 — Pagination and sorting
+
+`GET /api/v1/posts` and `GET /api/v1/schedule` return a page instead of the whole table:
+
+```text
+GET /api/v1/posts?status=DRAFT&platformId=x&page=0&size=20&sort=updatedAt,desc&sort=author,asc
+```
+
+| Parameter | Default | Notes |
+| --- | --- | --- |
+| `page` | `0` | Zero-based. Past the last page returns an empty `items`, not an error. |
+| `size` | `20` (`50` for `/schedule`) | Capped at `100` by `spring.data.web.pageable.max-page-size`. |
+| `sort` | `updatedAt,desc` (`scheduledFor,asc` for `/schedule`) | Repeatable. Whitelisted: `createdAt`, `updatedAt`, `scheduledFor`, `platformId`, `status`, `author`. Anything else → `400`. |
+| `status`, `platformId` | none | Optional filters, applied before paging. |
+
+`data` is `{ items, page, size, totalElements, totalPages, hasNext, hasPrevious, sort }` — a trimmed envelope rather than Spring's
+verbose `Page`. Design notes: the sort whitelist keeps query-string input away from the persistence layer, an `id` tie-breaker is
+appended so pages never overlap or skip rows when many share the sorted value, and `posts` is indexed for the
+`status + updatedAt`, `platformId` and `scheduledFor` access paths. Each page costs two queries: the rows and a `count(*)`.

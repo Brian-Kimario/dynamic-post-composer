@@ -1,13 +1,16 @@
 package com.brian.postcomposer.controller;
 
 import com.brian.postcomposer.dto.ApiResponse;
+import com.brian.postcomposer.dto.PageResponse;
 import com.brian.postcomposer.dto.PostResponse;
 import com.brian.postcomposer.dto.RescheduleRequest;
 import com.brian.postcomposer.dto.ScheduleRequest;
 import com.brian.postcomposer.service.ScheduleService;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,9 +23,12 @@ public class ScheduleController {
 
     public ScheduleController(ScheduleService service) { this.service = service; }
 
+    /** The plan, soonest first by default; paged like every other list. */
     @GetMapping
-    public ApiResponse<List<PostResponse>> list() {
-        return ApiResponse.success("Scheduled posts retrieved", service.findAll().stream().map(PostResponse::from).toList());
+    public ApiResponse<PageResponse<PostResponse>> list(
+            @PageableDefault(size = 50, sort = "scheduledFor", direction = Sort.Direction.ASC) Pageable pageable) {
+        return ApiResponse.success("Scheduled posts retrieved",
+            PageResponse.of(service.findPage(pageable), PostResponse::from));
     }
 
     @GetMapping("/{id}")

@@ -7,10 +7,12 @@ import com.brian.postcomposer.model.Platform;
 import com.brian.postcomposer.model.Post;
 import com.brian.postcomposer.model.PostStatus;
 import com.brian.postcomposer.repository.PostRepository;
-import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,10 +24,15 @@ public class PostService {
 
     public PostService(PostRepository repository) { this.repository = repository; }
 
+    /** Public sort names -> entity properties. */
+    static final Map<String, String> SORTABLE = Map.of(
+        "createdAt", "createdAt", "updatedAt", "updatedAt", "scheduledFor", "scheduledFor",
+        "platformId", "platformId", "status", "status", "author", "authorName");
+
     @Transactional(readOnly = true)
-    public List<Post> findAll(PostStatus status) {
-        return status == null ? repository.findAllByOrderByUpdatedAtDesc()
-                              : repository.findByStatusOrderByUpdatedAtDesc(status);
+    public Page<Post> findPage(PostStatus status, String platformId, Pageable pageable) {
+        return repository.search(status, platformId == null ? null : platformId.toLowerCase(),
+            PageableSanitizer.sanitize(pageable, SORTABLE));
     }
 
     @Transactional(readOnly = true)
