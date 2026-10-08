@@ -33,23 +33,23 @@ public class PostController {
             @RequestParam(required = false) String platformId,
             @PageableDefault(size = 20, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ApiResponse.success("Posts retrieved",
-            PageResponse.of(service.findPage(status, platformId, pageable), PostResponse::from));
+            service.findPage(status, platformId, pageable));
     }
 
     @GetMapping("/{id}")
     public ApiResponse<PostResponse> get(@PathVariable UUID id) {
-        return ApiResponse.success("Post retrieved", PostResponse.from(service.findById(id)));
+        return ApiResponse.success("Post retrieved", service.getById(id));
     }
 
     @PostMapping
     public ResponseEntity<ApiResponse<PostResponse>> create(@Valid @RequestBody PostRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("Post created", PostResponse.from(service.create(request))));
+            .body(ApiResponse.success("Post created", service.create(request)));
     }
 
     @PutMapping("/{id}")
     public ApiResponse<PostResponse> update(@PathVariable UUID id, @Valid @RequestBody PostRequest request) {
-        return ApiResponse.success("Post updated", PostResponse.from(service.update(id, request)));
+        return ApiResponse.success("Post updated", service.update(id, request));
     }
 
     @DeleteMapping("/{id}")

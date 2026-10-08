@@ -28,23 +28,23 @@ public class ScheduleController {
     public ApiResponse<PageResponse<PostResponse>> list(
             @PageableDefault(size = 50, sort = "scheduledFor", direction = Sort.Direction.ASC) Pageable pageable) {
         return ApiResponse.success("Scheduled posts retrieved",
-            PageResponse.of(service.findPage(pageable), PostResponse::from));
+            service.findPage(pageable));
     }
 
     @GetMapping("/{id}")
     public ApiResponse<PostResponse> get(@PathVariable UUID id) {
-        return ApiResponse.success("Scheduled post retrieved", PostResponse.from(service.findById(id)));
+        return ApiResponse.success("Scheduled post retrieved", service.getById(id));
     }
 
     @PostMapping
     public ResponseEntity<ApiResponse<PostResponse>> schedule(@Valid @RequestBody ScheduleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("Post scheduled", PostResponse.from(service.schedule(request))));
+            .body(ApiResponse.success("Post scheduled", service.schedule(request)));
     }
 
     @PatchMapping("/{id}")
     public ApiResponse<PostResponse> reschedule(@PathVariable UUID id, @Valid @RequestBody RescheduleRequest request) {
-        return ApiResponse.success("Post rescheduled", PostResponse.from(service.reschedule(id, request)));
+        return ApiResponse.success("Post rescheduled", service.reschedule(id, request));
     }
 
     @DeleteMapping("/{id}")

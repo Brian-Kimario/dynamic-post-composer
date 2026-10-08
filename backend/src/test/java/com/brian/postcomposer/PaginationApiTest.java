@@ -4,16 +4,20 @@ import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.brian.postcomposer.model.Author;
 import com.brian.postcomposer.model.Post;
 import com.brian.postcomposer.model.PostStatus;
+import com.brian.postcomposer.repository.AuthorRepository;
 import com.brian.postcomposer.repository.PostRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.CacheManager;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** Experiment 2.2.1 - pagination, sorting and filtering on the list endpoints. */
@@ -22,20 +26,28 @@ import org.springframework.test.web.servlet.MockMvc;
 class PaginationApiTest {
     @Autowired MockMvc mvc;
     @Autowired PostRepository repository;
+    @Autowired AuthorRepository authorRepository;
+    @Autowired CacheManager cacheManager;
 
     @BeforeEach
     void seed() {
         repository.deleteAll();
+        cacheManager.getCacheNames().forEach(n -> cacheManager.getCache(n).clear());
+        List<Author> authors = List.of(authorFor("Author 0"), authorFor("Author 1"), authorFor("Author 2"));
         Instant base = Instant.parse("2030-01-01T00:00:00Z");
         for (int i = 0; i < 25; i++) {
             Post p = new Post();
             p.setContent("post " + i);
             p.setPlatformId(i % 5 == 0 ? "x" : "linkedin");
-            p.setAuthorName("Author " + (i % 3));
+            p.setAuthor(authors.get(i % 3));
             p.setStatus(i < 5 ? PostStatus.SCHEDULED : i < 15 ? PostStatus.DRAFT : PostStatus.PUBLISHED);
             if (p.getStatus() == PostStatus.SCHEDULED) p.setScheduledFor(base.plus(5 - i, ChronoUnit.DAYS));
             repository.save(p);
         }
+    }
+
+    private Author authorFor(String name) {
+        return authorRepository.findByName(name).orElseGet(() -> authorRepository.save(new Author(name)));
     }
 
     @Test
