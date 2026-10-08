@@ -58,6 +58,7 @@ public class SeedDataLoader implements ApplicationRunner {
             p.setPlatformId(platforms[random.nextInt(platforms.length)].id());
             p.setStatus(statuses[random.nextInt(statuses.length)]);
             if (p.getStatus() == PostStatus.SCHEDULED) p.setScheduledFor(now.plus(1 + random.nextInt(90), ChronoUnit.DAYS));
+            p.setLikes(random.nextInt(10_000));
             p.setAuthor(savedAuthors.get(random.nextInt(savedAuthors.size())));
             batch.add(p);
         }

@@ -1716,8 +1716,9 @@ clear `postPages` and `stats`; the cache advisor runs outside the transaction so
 Disable for comparison with `--spring.cache.type=none`.
 
 ### Native SQL
-`GET /api/v1/stats?topAuthors=5` runs two native aggregate queries (`GROUP BY` platform/status, and top authors by
-post count) mapped to projection interfaces.
+`GET /api/v1/stats?topAuthors=5&topPosts=5` runs three native queries mapped to projection interfaces: counts per
+platform/status, top authors by post count, and the top-liked published posts (`ORDER BY likes DESC LIMIT n`, backed
+by `idx_posts_likes`) - the "top-performing posts" query from the lab sheet.
 
 ### Benchmark with JMeter
 Seed data and start the app (H2, 5,000 posts / 50 authors):
@@ -1734,3 +1735,20 @@ Compare average/p95 latency and throughput in `report/index.html`. Record your o
 |---|---|---|---|
 | No cache | | | |
 | Ehcache | | | |
+
+## Lab sheet traceability (Experiments 5 and 6)
+
+| Lab requirement | Where |
+|---|---|
+| Exp 5 - CRUD + scheduling endpoints | `PostController`, `ScheduleController` (`/api/v1/...`) |
+| Exp 5 - Bean Validation, invalid-input tests | `PostRequest` etc., `PostApiIntegrationTest` |
+| Exp 5 - `ApiResponse` (`status`, `message`, `data`) | `ApiResponse` (adds `success`, `correlationId`, `timestamp`) |
+| Exp 5 - CORS | `CorsConfig` |
+| Exp 5 - logging filter (URI + duration) | `RequestLoggingFilter` |
+| Exp 5 - `@ControllerAdvice` validation + generic | `GlobalExceptionHandler` |
+| Exp 5 - MDC correlation ID in logs | `CorrelationIdFilter`, `logback-spring.xml` |
+| Exp 6.1 - paginated + sorted `GET /posts` | `PostController`, `PageResponse`, `PageableSanitizer` |
+| Exp 6.2 - N+1 identified and fixed with JOIN FETCH | `PostRepository.search`, `QueryOptimizationTest` |
+| Exp 6.2 - Ehcache for analytics data | `ehcache.xml`, `StatsService` |
+| Exp 6.2 - native query, top posts | `PostRepository.topPosts` |
+| Exp 6.2 - JMeter before/after caching | `benchmark/posts-read.jmx` |

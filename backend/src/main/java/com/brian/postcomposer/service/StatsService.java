@@ -18,14 +18,16 @@ public class StatsService {
 
     public StatsService(PostRepository repository) { this.repository = repository; }
 
-    @Cacheable(cacheNames = STATS, key = "#topAuthors")
+    @Cacheable(cacheNames = STATS, key = "#topAuthors + '-' + #topPosts")
     @Transactional(readOnly = true)
-    public StatsResponse overview(int topAuthors) {
+    public StatsResponse overview(int topAuthors, int topPosts) {
         log.info("Cache miss: computing stats from the database");
         return new StatsResponse(
             repository.countByPlatformAndStatus().stream()
                 .map(r -> new StatsResponse.PlatformStatusCount(r.getPlatformId(), r.getStatus(), r.getTotal())).toList(),
             repository.topAuthors(topAuthors).stream()
-                .map(r -> new StatsResponse.AuthorActivity(r.getAuthor(), r.getTotal())).toList());
+                .map(r -> new StatsResponse.AuthorActivity(r.getAuthor(), r.getTotal())).toList(),
+            repository.topPosts(topPosts).stream()
+                .map(r -> new StatsResponse.TopPost(r.getId(), r.getContent(), r.getPlatformId(), r.getAuthor(), r.getLikes())).toList());
     }
 }

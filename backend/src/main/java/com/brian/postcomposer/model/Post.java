@@ -10,7 +10,8 @@ import java.util.UUID;
     @Index(name = "idx_posts_status_updated", columnList = "status, updatedAt"),
     @Index(name = "idx_posts_platform", columnList = "platformId"),
     @Index(name = "idx_posts_scheduled_for", columnList = "scheduledFor"),
-    @Index(name = "idx_posts_author", columnList = "author_id")
+    @Index(name = "idx_posts_author", columnList = "author_id"),
+    @Index(name = "idx_posts_likes", columnList = "likes")
 })
 public class Post {
     @Id
@@ -35,6 +36,10 @@ public class Post {
     @JoinColumn(name = "author_id", nullable = false)
     private Author author;
 
+    /** Engagement counter, used by the "top-performing posts" native query (Experiment 6). */
+    @Column(nullable = false)
+    private int likes;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -56,6 +61,8 @@ public class Post {
     public void setStatus(PostStatus status) { this.status = status; }
     public Instant getScheduledFor() { return scheduledFor; }
     public void setScheduledFor(Instant scheduledFor) { this.scheduledFor = scheduledFor; }
+    public int getLikes() { return likes; }
+    public void setLikes(int likes) { this.likes = likes; }
     public Author getAuthor() { return author; }
     public void setAuthor(Author author) { this.author = author; }
     public Instant getCreatedAt() { return createdAt; }

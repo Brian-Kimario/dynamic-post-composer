@@ -49,4 +49,21 @@ public interface PostRepository extends JpaRepository<Post, UUID> {
         from authors a join posts p on p.author_id = a.id
         group by a.id, a.name order by total desc, a.name limit :limit""")
     List<AuthorActivity> topAuthors(@Param("limit") int limit);
+
+    interface TopPostRow {
+        String getId();
+        String getContent();
+        String getPlatformId();
+        String getAuthor();
+        int getLikes();
+    }
+
+    /** Top-performing published posts (Experiment 6 assignment 4): native ORDER BY ... LIMIT, served by idx_posts_likes. */
+    @Query(nativeQuery = true, value = """
+        select cast(p.id as varchar) as id, p.content as content, p.platform_id as platformId,
+               a.name as author, p.likes as likes
+        from posts p join authors a on a.id = p.author_id
+        where p.status = 'PUBLISHED'
+        order by p.likes desc, p.id limit :limit""")
+    List<TopPostRow> topPosts(@Param("limit") int limit);
 }

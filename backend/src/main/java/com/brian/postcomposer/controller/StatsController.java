@@ -16,11 +16,13 @@ public class StatsController {
 
     public StatsController(StatsService service) { this.service = service; }
 
-    /** Post counts per platform and status, plus the most active authors. */
+    /** Post counts per platform and status, plus the most active authors and the top-liked published posts. */
     @GetMapping
     public ApiResponse<StatsResponse> overview(
             @RequestParam(defaultValue = "5") @Min(value = 1, message = "must be at least 1")
-            @Max(value = 25, message = "must be at most 25") int topAuthors) {
-        return ApiResponse.success("Stats retrieved", service.overview(topAuthors));
+            @Max(value = 25, message = "must be at most 25") int topAuthors,
+            @RequestParam(defaultValue = "5") @Min(value = 1, message = "must be at least 1")
+            @Max(value = 25, message = "must be at most 25") int topPosts) {
+        return ApiResponse.success("Stats retrieved", service.overview(topAuthors, topPosts));
     }
 }

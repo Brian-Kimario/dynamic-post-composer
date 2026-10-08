@@ -57,6 +57,7 @@ class QueryOptimizationTest {
             p.setContent("c" + i);
             p.setPlatformId(i % 2 == 0 ? "x" : "linkedin");
             p.setStatus(i % 4 == 0 ? PostStatus.PUBLISHED : PostStatus.DRAFT);
+            p.setLikes(i * 10);
             p.setAuthor(saved.get(i % AUTHORS));   // every row in a page has a different author
             posts.save(p);
         }
@@ -146,22 +147,28 @@ class QueryOptimizationTest {
 
     @Test
     void nativeStatsAggregateAndAreCached() throws Exception {
-        mvc.perform(get("/api/v1/stats").param("topAuthors", "3"))
+        mvc.perform(get("/api/v1/stats").param("topAuthors", "3").param("topPosts", "3"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.byPlatformAndStatus", hasSize(3)))
             .andExpect(jsonPath("$.data.byPlatformAndStatus[?(@.platformId=='x' && @.status=='PUBLISHED')].total",
                 contains(10)))
             .andExpect(jsonPath("$.data.topAuthors", hasSize(3)))
-            .andExpect(jsonPath("$.data.topAuthors[0].total").value(4));
+            .andExpect(jsonPath("$.data.topAuthors[0].total").value(4))
+            .andExpect(jsonPath("$.data.topPosts", hasSize(3)))
+            .andExpect(jsonPath("$.data.topPosts[0].likes").value(360))   // highest-liked PUBLISHED (i=36)
+            .andExpect(jsonPath("$.data.topPosts[1].likes").value(320));
         long afterFirst = stats.getPrepareStatementCount();
-        assertThat(afterFirst).isEqualTo(2);   // one native statement per aggregate
+        assertThat(afterFirst).isEqualTo(3);   // one native statement per aggregate
 
-        mvc.perform(get("/api/v1/stats").param("topAuthors", "3")).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/stats").param("topAuthors", "3").param("topPosts", "3"))
+            .andExpect(status().isOk());
         assertThat(stats.getPrepareStatementCount()).isEqualTo(afterFirst);
     }
 
     @Test
     void statsRejectOutOfRangeLimit() throws Exception {
+        mvc.perform(get("/api/v1/stats").param("topPosts", "0"))
+            .andExpect(status().isBadRequest());
         mvc.perform(get("/api/v1/stats").param("topAuthors", "500"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.message").value("Validation failed"));
