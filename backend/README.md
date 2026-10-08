@@ -5,7 +5,7 @@ Spring Boot backend for the composer UI in the repo root. It models the UI's thr
 
 ## Run
 
-Requires JDK 21+ and Maven 3.9+.
+Requires JDK 25+ and Maven 3.9+.
 
 ```bash
 cd backend
