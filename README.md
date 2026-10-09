@@ -14,7 +14,9 @@ Access is role-based: what a user can see, open and do is determined by the role
 Posts can also be scheduled onto a content calendar and rearranged by dragging.
 
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1, 1.3.2, 1.4.1 and 1.4.2**.
+**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1, 1.3.2, 1.4.1 and 1.4.2** (the React frontend) and
+**Experiments 2.1.1, 2.1.2, 2.2.1, 2.2.2, 2.3.1 and 2.3.2** (the Spring Boot backend in
+[`backend/`](backend/README.md)).
 
 ---
 
@@ -85,11 +87,57 @@ Covers profiling the calendar to find a real bottleneck, fixing it with per-comp
 selectors, and an automated suite — unit, integration and render-count tests — that holds both the
 behaviour and the optimisation in place.
 
+### Backend experiments (Unit 2)
+
+The `backend/` folder is a Spring Boot 3.5 / Java 25 REST API. Full details, endpoints and test
+instructions are in [`backend/README.md`](backend/README.md).
+
+### Experiment 2.1.1 — RESTful CRUD API
+
+**Aim:** To build REST endpoints for posts and schedules with validation and a standard response envelope.
+
+Covers controller/service/repository layering, Bean Validation, CORS for the UI, and JPA on H2.
+
+### Experiment 2.1.2 — Exception Handling & Observability
+
+**Aim:** To return consistent errors and make requests traceable.
+
+Covers a global `@RestControllerAdvice`, correlation ids carried through logs and responses, and request logging.
+
+### Experiment 2.2.1 — Pagination & Sorting
+
+**Aim:** To serve large post lists efficiently.
+
+Covers `Pageable`-style `page`/`size`/`sort` parameters with whitelisted sort fields, filtering, and a capped page size.
+
+### Experiment 2.2.2 — Caching & Query Optimization
+
+**Aim:** To make read APIs fast and measurable.
+
+Covers `JOIN FETCH` against the N+1 problem, Ehcache via JCache, a native SQL top-posts query, a stats
+endpoint, indexes, a 5,000-post seeder, and a JMeter plan (`backend/benchmark/posts-read.jmx`).
+
+### Experiment 2.3.1 — JWT Authentication & RBAC (lab Experiment 7.1)
+
+**Aim:** To secure the backend with JWT authentication and role-based access control.
+
+Covers Spring Security's stateless filter chain, a JWT filter, BCrypt login, `@PreAuthorize` rules for
+ADMIN / EDITOR / VIEWER, and 401/403 responses in the standard JSON envelope.
+
+### Experiment 2.3.2 — Encryption & Token Lifecycle (lab Experiment 7.2)
+
+**Aim:** To protect stored credentials and manage the token lifecycle.
+
+Covers AES-256-GCM encryption of OAuth tokens at rest (write-only API, owner-scoped), 15-minute access
+tokens, hashed single-use refresh tokens in an HttpOnly cookie, rotation with reuse detection, and logout.
+
 ### Scope
 
-There is still no real backend and no social media integration — publishing is simulated in the
-browser, everything is stored locally, and the "auth server" is a module (`services/authApi.js`)
-rather than a remote host. The tokens are not simulated: they are real signed JWTs.
+The frontend still runs entirely in the browser: publishing is simulated, drafts are stored locally,
+and the "auth server" is a module (`services/authApi.js`). **The React app is not yet wired to the
+Spring Boot API** — the two are developed side by side, and the backend can be exercised with the
+tests and the Postman collection in `backend/postman/`. The tokens in both are real signed JWTs.
+There is still no real social media integration.
 
 Retry logic and toast notifications (Experiment 1, Assignment 4) remain unimplemented. Token refresh
 (Experiment 3, Assignment 5) **is** implemented — see the Token Refresh section — with one honest
@@ -100,6 +148,21 @@ The honest limit of the RBAC work: the checks are real and enforced at the API l
 runs in the browser, so a determined user can still reach the data. What is demonstrated is the
 _mechanism_ and its layering, not a boundary that would survive an adversary — see the caveat at the
 end of the Authorization section.
+
+---
+
+## Running the Backend
+
+```bash
+cd backend
+export DEMO_PASSWORD=choose-a-demo-password   # password for the seeded demo accounts
+mvn spring-boot:run                           # http://localhost:8080 (needs JDK 25+)
+mvn test                                      # 39 tests
+```
+
+Demo accounts: `ava@dpc.dev` (ADMIN), `noah@dpc.dev` (EDITOR), `priya@dpc.dev` (VIEWER). Set `JWT_SECRET`
+and `ENCRYPTION_KEY` for persistent keys; if unset, random per-run keys are generated. No secrets are
+committed. See [`backend/README.md`](backend/README.md) for endpoints and the role matrix.
 
 ---
 
@@ -210,21 +273,25 @@ end of the Authorization section.
 
 ## Tech Stack
 
-| Technology          | Why it is here                                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------------------------- |
-| **React 19**        | Component model and state management for a UI that re-renders on every keystroke.                       |
-| **Vite 8**          | Dev server with fast HMR and an optimised production build.                                             |
-| **Tailwind CSS 4**  | Utility-first styling with a consistent spacing/colour scale and no separate CSS files to keep in sync. |
-| **lucide-react**    | Small, tree-shakeable icon set for status and action icons.                                             |
-| **ESLint**          | Correctness rules, notably `eslint-plugin-react-hooks` for the rules of hooks.                          |
-| **Prettier**        | Formatting, including automatic Tailwind class sorting.                                                 |
-| **Redux Toolkit**   | Centralized store, normalized entity state and async thunks (added in 1.2.1).                           |
-| **React-Redux**     | `useSelector` / `useDispatch` bindings between the store and components.                                |
-| **Reselect**        | Memoized selectors via `createSelector` — ships inside Redux Toolkit, so it is not a separate install.  |
-| **Web Crypto API**  | HMAC-SHA256 signing and verification for JWTs — a browser built-in, not a dependency (added in 1.3.1).  |
-| **React Router 8**  | Client-side routing, and the layer route protection is expressed in (added in 1.3.2).                   |
-| **Vitest 4**        | Test runner. Jest-compatible API, and it reuses the Vite config (added in 1.4.2).                       |
-| **Testing Library** | Component tests written the way a user interacts, not against implementation details (added in 1.4.2).  |
+| Technology           | Why it is here                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------- |
+| **React 19**         | Component model and state management for a UI that re-renders on every keystroke.                       |
+| **Vite 8**           | Dev server with fast HMR and an optimised production build.                                             |
+| **Tailwind CSS 4**   | Utility-first styling with a consistent spacing/colour scale and no separate CSS files to keep in sync. |
+| **lucide-react**     | Small, tree-shakeable icon set for status and action icons.                                             |
+| **ESLint**           | Correctness rules, notably `eslint-plugin-react-hooks` for the rules of hooks.                          |
+| **Prettier**         | Formatting, including automatic Tailwind class sorting.                                                 |
+| **Redux Toolkit**    | Centralized store, normalized entity state and async thunks (added in 1.2.1).                           |
+| **React-Redux**      | `useSelector` / `useDispatch` bindings between the store and components.                                |
+| **Reselect**         | Memoized selectors via `createSelector` — ships inside Redux Toolkit, so it is not a separate install.  |
+| **Web Crypto API**   | HMAC-SHA256 signing and verification for JWTs — a browser built-in, not a dependency (added in 1.3.1).  |
+| **React Router 8**   | Client-side routing, and the layer route protection is expressed in (added in 1.3.2).                   |
+| **Vitest 4**         | Test runner. Jest-compatible API, and it reuses the Vite config (added in 1.4.2).                       |
+| **Testing Library**  | Component tests written the way a user interacts, not against implementation details (added in 1.4.2).  |
+| **Spring Boot 3.5**  | Backend REST API on Java 25: Web, Validation, Data JPA, Cache (Experiment 2).                           |
+| **Spring Security**  | Stateless JWT filter chain, BCrypt and `@PreAuthorize` RBAC; tokens via JJWT (added in 2.3.1).          |
+| **H2 / Ehcache 3**   | In-memory database for development; JCache-backed read caching (added in 2.1 / 2.2.2).                  |
+| **JMeter / Postman** | Read-API benchmarking (2.2.2) and a ready-made request collection for the secured API (2.3).            |
 
 Up to Experiment 1.1.2 the app used only `useState` and `useReducer`, which was the right call for
 two state owners that barely interacted. Redux Toolkit was introduced in 1.2.1 once three domains
@@ -329,6 +396,15 @@ the alternative, an effect that copies props into state, is a well-known source 
 ## Project Structure
 
 ```
+backend/                              Spring Boot API (see backend/README.md)
+├── src/main/java/com/brian/postcomposer/
+│   ├── controller/  service/  repository/  model/  dto/
+│   ├── security/                     JWT filter + service, SecurityConfig, refresh-token rotation
+│   ├── crypto/                       AES-256-GCM encryptor and JPA converter
+│   ├── config/  exception/  logging/ CORS, seeders, error envelope, correlation ids
+├── src/test/                         MockMvc / security / token-lifecycle tests (39)
+├── postman/                          Request collection for the secured API
+└── benchmark/                        JMeter plan for the read APIs
 src/
 ├── store/
 │   ├── index.js                      configureStore — composes the eight slices
@@ -632,11 +708,11 @@ closes the `alg: none` family of attacks.
 
 ### Where the token lives
 
-| Storage          | Survives              | Exposed to JS | Used here                 |
-| ---------------- | --------------------- | ------------- | ------------------------- |
-| `sessionStorage` | reload, not tab close | yes           | **default**               |
-| `localStorage`   | browser restart       | yes           | opt-in via "keep me in"   |
-| HTTP-only cookie | per cookie policy     | **no**        | needs a backend — not yet |
+| Storage          | Survives              | Exposed to JS | Used here                                                                      |
+| ---------------- | --------------------- | ------------- | ------------------------------------------------------------------------------ |
+| `sessionStorage` | reload, not tab close | yes           | **default**                                                                    |
+| `localStorage`   | browser restart       | yes           | opt-in via "keep me in"                                                        |
+| HTTP-only cookie | per cookie policy     | **no**        | needs a backend — now available in `backend/` (2.3.2), not yet wired to the UI |
 
 The cookie is the option that actually defends against XSS, and it is unavailable without a server
 to set it, so `sessionStorage` is the default: the narrower blast radius of the two that remain, and
@@ -1696,6 +1772,7 @@ The UI still uses its localStorage mock services; wiring them to the API is a la
 ## Experiment 2.2.2 - Query optimisation, caching and benchmarking
 
 ### N+1 fixed with JOIN FETCH
+
 `Post.author` is a lazy `@ManyToOne`. The default `findAll(Pageable)` plus `post.getAuthor().getName()` issues
 1 page query + 1 count + one author SELECT per distinct author in the page. `PostRepository.search` uses
 `join fetch p.author` (with an explicit `countQuery`, because a fetch join cannot be counted) so a page is exactly
@@ -1703,52 +1780,59 @@ The UI still uses its localStorage mock services; wiring them to the API is a la
 `QueryOptimizationTest` proves this with Hibernate statistics, including `sort=author`.
 
 ### Caching (Ehcache 3 via JCache)
+
 Configured in `src/main/resources/ehcache.xml`:
 
-| Cache | TTL | Max entries | Holds |
-|---|---|---|---|
-| `post` | 10 min | 2000 | single post by id |
-| `postPages` | 60 s | 500 | list pages keyed by (status, platform, pageable) |
-| `stats` | 5 min | 10 | aggregate stats |
+| Cache       | TTL    | Max entries | Holds                                            |
+| ----------- | ------ | ----------- | ------------------------------------------------ |
+| `post`      | 10 min | 2000        | single post by id                                |
+| `postPages` | 60 s   | 500         | list pages keyed by (status, platform, pageable) |
+| `stats`     | 5 min  | 10          | aggregate stats                                  |
 
 Services return immutable DTOs (cached values are never live entities). Writes evict the affected `post` entry and
 clear `postPages` and `stats`; the cache advisor runs outside the transaction so eviction happens after commit.
 Disable for comparison with `--spring.cache.type=none`.
 
 ### Native SQL
+
 `GET /api/v1/stats?topAuthors=5&topPosts=5` runs three native queries mapped to projection interfaces: counts per
 platform/status, top authors by post count, and the top-liked published posts (`ORDER BY likes DESC LIMIT n`, backed
 by `idx_posts_likes`) - the "top-performing posts" query from the lab sheet.
 
 ### Benchmark with JMeter
+
 Seed data and start the app (H2, 5,000 posts / 50 authors):
+
 ```bash
 mvn spring-boot:run -Dspring-boot.run.arguments="--app.seed.enabled=true"
 ```
+
 Run the plan headless (once with caching, once with `--spring.cache.type=none`):
+
 ```bash
 jmeter -n -t benchmark/posts-read.jmx -Jthreads=50 -Jloops=200 -l results.jtl -e -o report/
 ```
+
 Compare average/p95 latency and throughput in `report/index.html`. Record your own numbers here:
 
-| Run | Avg (ms) | p95 (ms) | Throughput (req/s) |
-|---|---|---|---|
-| No cache | | | |
-| Ehcache | | | |
+| Run      | Avg (ms) | p95 (ms) | Throughput (req/s) |
+| -------- | -------- | -------- | ------------------ |
+| No cache |          |          |                    |
+| Ehcache  |          |          |                    |
 
 ## Lab sheet traceability (Experiments 5 and 6)
 
-| Lab requirement | Where |
-|---|---|
-| Exp 5 - CRUD + scheduling endpoints | `PostController`, `ScheduleController` (`/api/v1/...`) |
-| Exp 5 - Bean Validation, invalid-input tests | `PostRequest` etc., `PostApiIntegrationTest` |
+| Lab requirement                                     | Where                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------ |
+| Exp 5 - CRUD + scheduling endpoints                 | `PostController`, `ScheduleController` (`/api/v1/...`)       |
+| Exp 5 - Bean Validation, invalid-input tests        | `PostRequest` etc., `PostApiIntegrationTest`                 |
 | Exp 5 - `ApiResponse` (`status`, `message`, `data`) | `ApiResponse` (adds `success`, `correlationId`, `timestamp`) |
-| Exp 5 - CORS | `CorsConfig` |
-| Exp 5 - logging filter (URI + duration) | `RequestLoggingFilter` |
-| Exp 5 - `@ControllerAdvice` validation + generic | `GlobalExceptionHandler` |
-| Exp 5 - MDC correlation ID in logs | `CorrelationIdFilter`, `logback-spring.xml` |
-| Exp 6.1 - paginated + sorted `GET /posts` | `PostController`, `PageResponse`, `PageableSanitizer` |
-| Exp 6.2 - N+1 identified and fixed with JOIN FETCH | `PostRepository.search`, `QueryOptimizationTest` |
-| Exp 6.2 - Ehcache for analytics data | `ehcache.xml`, `StatsService` |
-| Exp 6.2 - native query, top posts | `PostRepository.topPosts` |
-| Exp 6.2 - JMeter before/after caching | `benchmark/posts-read.jmx` |
+| Exp 5 - CORS                                        | `CorsConfig`                                                 |
+| Exp 5 - logging filter (URI + duration)             | `RequestLoggingFilter`                                       |
+| Exp 5 - `@ControllerAdvice` validation + generic    | `GlobalExceptionHandler`                                     |
+| Exp 5 - MDC correlation ID in logs                  | `CorrelationIdFilter`, `logback-spring.xml`                  |
+| Exp 6.1 - paginated + sorted `GET /posts`           | `PostController`, `PageResponse`, `PageableSanitizer`        |
+| Exp 6.2 - N+1 identified and fixed with JOIN FETCH  | `PostRepository.search`, `QueryOptimizationTest`             |
+| Exp 6.2 - Ehcache for analytics data                | `ehcache.xml`, `StatsService`                                |
+| Exp 6.2 - native query, top posts                   | `PostRepository.topPosts`                                    |
+| Exp 6.2 - JMeter before/after caching               | `benchmark/posts-read.jmx`                                   |

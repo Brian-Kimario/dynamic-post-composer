@@ -13,7 +13,7 @@ mvn spring-boot:run     # http://localhost:8080
 mvn test                # integration tests (MockMvc)
 ```
 
-H2 console: `http://localhost:8080/h2-console` — JDBC URL `jdbc:h2:mem:postcomposer`, user `sa`, empty password.
+Set `DEMO_PASSWORD` first (password for the seeded demo users; otherwise a random one is logged at startup). The H2 console is disabled since 2.3.1 because it would bypass authentication.
 
 ## 2.1.1 — RESTful CRUD API
 
