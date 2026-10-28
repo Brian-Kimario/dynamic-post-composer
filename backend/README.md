@@ -177,3 +177,9 @@ CI: `.github/workflows/ci.yml` (backend `mvn clean verify`, frontend lint/test/b
 The React frontend is wired to this API (see the root README). Backend-side changes: the access token now carries a `name` claim so the UI can show the signed-in user without an extra `/auth/me` call. The SPA reaches the API through the Vite dev proxy, so the `refresh_token` cookie (`SameSite=Strict`, path `/api/v1/auth`) stays first-party; `app.cors.allowed-origins` still covers direct cross-origin use.
 
 End-to-end flow exercised: login -> JWT -> `POST /api/v1/posts` (published) and `POST /api/v1/schedule` (calendar) -> optional Kafka publish -> `GET /api/v1/stats` for the analytics panel.
+
+## Experiment 3.3.2 - capstone
+
+- **Swagger / OpenAPI:** `http://localhost:8080/swagger-ui.html` (spec at `/v3/api-docs`). Log in via `POST /api/v1/auth/login`, press **Authorize** and paste the access token.
+- **Coverage gate:** JaCoCo runs in `mvn verify` and fails the build below 80% line coverage (currently ~89%); report in `target/site/jacoco/index.html`. Frontend: `npm run test:coverage` (~96% lines).
+- **Auto-publish:** with `KAFKA_ENABLED=true`, scheduling publishes a `PostScheduledEvent`; `ScheduledPostConsumer` marks the post PUBLISHED, with retries and a dead-letter topic.
