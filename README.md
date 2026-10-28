@@ -14,7 +14,7 @@ Access is role-based: what a user can see, open and do is determined by the role
 Posts can also be scheduled onto a content calendar and rearranged by dragging.
 
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1, 1.1.2, 1.2.1, 1.2.2, 1.3.1, 1.3.2, 1.4.1 and 1.4.2**.
+**Experiments 1.1.1 to 1.4.2** (frontend) and the Spring Boot backend for **Experiments 2.1 to 2.3 and 3.1.1**.
 
 ---
 
@@ -1692,6 +1692,24 @@ experiment.
 
 The Spring Boot REST API lives in [`backend/`](backend/README.md) (`cd backend && mvn spring-boot:run`, port 8080).
 The UI still uses its localStorage mock services; wiring them to the API is a later step.
+
+| Experiment | What the backend adds |
+|---|---|
+| 2.1 | REST API for posts, schedules and authors (Spring Boot, JPA, H2, validation, global error handling) |
+| 2.2 | Pagination, N+1 fix, Ehcache caching, native SQL stats, JMeter benchmark |
+| 2.3 | Stateless JWT auth, RBAC (ADMIN / EDITOR / VIEWER), AES-256-GCM encrypted OAuth credentials, refresh-token rotation with reuse detection |
+| 3.1.1 | Kafka event-driven scheduling with exponential-backoff retry, dead-letter topic and idempotent consumer |
+
+### Kafka reliability (3.1.1)
+Scheduling a post publishes a `PostScheduledEvent` to `post.scheduled` after the DB commit. The consumer retries
+failures with exponential backoff (1s, 2s, 4s), then routes the event to `post.scheduled.DLT`; a `processed_events`
+table makes redelivered events a no-op. Run it with Docker:
+```bash
+cd backend && docker compose up -d          # Kafka :9092, Kafka UI http://localhost:8090
+KAFKA_ENABLED=true mvn spring-boot:run
+```
+Trigger failure paths with `[flaky]`, `[fail-transient]` or `[fail-permanent]` in the post content. Details in
+[`backend/README.md`](backend/README.md).
 
 ## Experiment 2.2.2 - Query optimisation, caching and benchmarking
 
