@@ -171,3 +171,9 @@ CI: `.github/workflows/ci.yml` (backend `mvn clean verify`, frontend lint/test/b
   `deploy/canary-check.sh` is the gate: any failed request or zero canary traffic means rollback, otherwise promote.
 - Observed locally: `requests=100 stable=85 canary=15 errors=0` -> `CANARY HEALTHY -> promote to 100%`.
 - Added `spring-boot-starter-actuator` exposing only `health` and `info`; both are public so probes work.
+
+## Experiment 3.3.1: Full-stack integration (lab Experiment 10.1)
+
+The React frontend is wired to this API (see the root README). Backend-side changes: the access token now carries a `name` claim so the UI can show the signed-in user without an extra `/auth/me` call. The SPA reaches the API through the Vite dev proxy, so the `refresh_token` cookie (`SameSite=Strict`, path `/api/v1/auth`) stays first-party; `app.cors.allowed-origins` still covers direct cross-origin use.
+
+End-to-end flow exercised: login -> JWT -> `POST /api/v1/posts` (published) and `POST /api/v1/schedule` (calendar) -> optional Kafka publish -> `GET /api/v1/stats` for the analytics panel.

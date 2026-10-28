@@ -9,6 +9,13 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
 
+  // Same-origin API in development: the browser talks to :5173 and Vite forwards
+  // /api to Spring Boot. That keeps the SameSite=Strict refresh cookie working
+  // and removes CORS from the picture entirely.
+  server: {
+    proxy: { '/api': { target: 'http://localhost:8080' } },
+  },
+
   /**
    * Tests run through Vitest rather than Jest.
    *

@@ -5,6 +5,8 @@ import { fetchDrafts } from '../store/draftsSlice';
 import { fetchPosts } from '../store/postsSlice';
 import { selectContentSummary } from '../store/selectors';
 import ContentInsightsPanel from '../components/insights/ContentInsightsPanel';
+import BackendAnalyticsPanel from '../components/insights/BackendAnalyticsPanel';
+import { USE_BACKEND } from '../services/config';
 
 /**
  * Insights read entirely from the drafts and posts slices, and with routing a
@@ -23,7 +25,18 @@ export default function InsightsPage() {
 
   // The panel renders nothing when there is nothing to summarise, which is right
   // inside a stack of other panels and wrong as a whole page.
-  if (summary.draftCount === 0 && summary.postCount === 0) {
+  const isEmpty = summary.draftCount === 0 && summary.postCount === 0;
+
+  if (USE_BACKEND) {
+    return (
+      <div className="flex flex-col gap-6">
+        <BackendAnalyticsPanel />
+        {!isEmpty && <ContentInsightsPanel />}
+      </div>
+    );
+  }
+
+  if (isEmpty) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-12 text-center">
         <BarChart3 aria-hidden="true" className="mx-auto size-6 text-slate-300" />

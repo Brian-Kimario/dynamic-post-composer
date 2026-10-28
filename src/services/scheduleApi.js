@@ -1,5 +1,7 @@
 import { createLocalCollectionApi } from './localCollection';
 import { PERMISSION } from '../config/permissions';
+import { USE_BACKEND } from './config';
+import { createScheduleApi } from './live/collections';
 
 /**
  * Scheduled posts — the third collection, and the first whose records carry a
@@ -12,7 +14,7 @@ import { PERMISSION } from '../config/permissions';
  *
  * Rescheduling maps onto `update`, so a drag-and-drop is a PATCH like any other.
  */
-export const scheduleApi = createLocalCollectionApi({
+const localScheduleApi = createLocalCollectionApi({
   storageKey: 'dpc.schedule.v1',
   label: 'scheduled posts',
   // A viewer can see the plan but not change it — dragging is the whole
@@ -24,3 +26,5 @@ export const scheduleApi = createLocalCollectionApi({
     remove: PERMISSION.POST_SCHEDULE,
   },
 });
+
+export const scheduleApi = USE_BACKEND ? createScheduleApi() : localScheduleApi;

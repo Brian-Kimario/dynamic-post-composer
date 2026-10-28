@@ -1,5 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { setSessionRefreshHandler } from '../services/apiClient';
+import { setLiveSessionRefreshHandler } from '../services/live/http';
 import { decodeToken } from '../services/jwt';
 import authReducer, { sessionRenewed } from './authSlice';
 import calendarReducer from './calendarSlice';
@@ -47,6 +48,9 @@ export const store = configureStore({
  * The token is decoded rather than re-verified: it was signed seconds ago by the
  * refresh call that produced it, and verification already happened there.
  */
-setSessionRefreshHandler(({ accessToken }) => {
+const handleRefresh = ({ accessToken }) => {
   store.dispatch(sessionRenewed({ token: accessToken, claims: decodeToken(accessToken).payload }));
-});
+};
+
+setSessionRefreshHandler(handleRefresh);
+setLiveSessionRefreshHandler(handleRefresh);

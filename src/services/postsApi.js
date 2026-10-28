@@ -1,7 +1,9 @@
 import { createLocalCollectionApi } from './localCollection';
 import { PERMISSION } from '../config/permissions';
+import { USE_BACKEND } from './config';
+import { createPostsApi } from './live/collections';
 
-export const postsApi = createLocalCollectionApi({
+const localPostsApi = createLocalCollectionApi({
   storageKey: 'dpc.posts.v1',
   label: 'published posts',
   // Removing something already published is the one destructive act reserved for
@@ -13,3 +15,5 @@ export const postsApi = createLocalCollectionApi({
     remove: PERMISSION.POST_DELETE,
   },
 });
+
+export const postsApi = USE_BACKEND ? createPostsApi() : localPostsApi;
