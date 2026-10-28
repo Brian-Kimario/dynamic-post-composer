@@ -19,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ScheduledPostProcessor {
     private static final Logger log = LoggerFactory.getLogger(ScheduledPostProcessor.class);
-    static final int FLAKY_FAILURES = 2;
+    public static final int FLAKY_FAILURES = 2;
     private final ProcessedEventRepository processed;
     private final Map<String, Integer> attempts = new ConcurrentHashMap<>();
 

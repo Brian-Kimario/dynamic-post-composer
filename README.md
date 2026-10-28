@@ -14,7 +14,7 @@ Access is role-based: what a user can see, open and do is determined by the role
 Posts can also be scheduled onto a content calendar and rearranged by dragging.
 
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1 to 1.4.2** (frontend) and the Spring Boot backend for **Experiments 2.1 to 2.3 and 3.1.1**.
+**Experiments 1.1.1 to 1.4.2** (frontend) and the Spring Boot backend for **Experiments 2.1 to 2.3, 3.1 and 3.2.1**.
 
 ---
 
@@ -1699,6 +1699,7 @@ The UI still uses its localStorage mock services; wiring them to the API is a la
 | 2.2 | Pagination, N+1 fix, Ehcache caching, native SQL stats, JMeter benchmark |
 | 2.3 | Stateless JWT auth, RBAC (ADMIN / EDITOR / VIEWER), AES-256-GCM encrypted OAuth credentials, refresh-token rotation with reuse detection |
 | 3.1.1 | Kafka event-driven scheduling with exponential-backoff retry, dead-letter topic and idempotent consumer |
+| 3.2.1 | CI pipeline (GitHub Actions) running unit, API, Pact contract and Testcontainers Kafka tests on every push and pull request |
 
 ### Kafka reliability (3.1.1)
 Scheduling a post publishes a `PostScheduledEvent` to `post.scheduled` after the DB commit. The consumer retries
@@ -1710,6 +1711,15 @@ KAFKA_ENABLED=true mvn spring-boot:run
 ```
 Trigger failure paths with `[flaky]`, `[fail-transient]` or `[fail-permanent]` in the post content. Details in
 [`backend/README.md`](backend/README.md).
+
+### CI pipeline and test pyramid (3.2.1)
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request: a **backend** job (`mvn clean verify`
+on JDK 25; the runner's Docker lets Testcontainers start a real Kafka) and a **frontend** job (lint, Vitest, build).
+Backend layers: JUnit 5/Mockito unit tests (`unit/`, `service/`), MockMvc API tests, Pact provider verification of the
+frontend's contract (`contract/PactProviderTest`, `src/test/resources/pacts/`) and `KafkaTestcontainersTest`.
+```bash
+cd backend && mvn clean verify     # 67 tests; Testcontainers is skipped automatically if Docker is not running
+```
 
 ## Experiment 2.2.2 - Query optimisation, caching and benchmarking
 
