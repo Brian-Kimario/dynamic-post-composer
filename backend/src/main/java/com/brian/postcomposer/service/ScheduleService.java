@@ -7,6 +7,8 @@ import com.brian.postcomposer.dto.PostResponse;
 import com.brian.postcomposer.dto.RescheduleRequest;
 import com.brian.postcomposer.dto.ScheduleRequest;
 import com.brian.postcomposer.exception.ResourceNotFoundException;
+import com.brian.postcomposer.kafka.PostScheduledCreated;
+import com.brian.postcomposer.kafka.PostScheduledEvent;
 import com.brian.postcomposer.model.Post;
 import com.brian.postcomposer.model.PostStatus;
 import com.brian.postcomposer.repository.PostRepository;
@@ -15,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Caching;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,10 +32,12 @@ public class ScheduleService {
     private static final Logger log = LoggerFactory.getLogger(ScheduleService.class);
     private final PostRepository repository;
     private final AuthorService authors;
+    private final ApplicationEventPublisher events;
 
-    public ScheduleService(PostRepository repository, AuthorService authors) {
+    public ScheduleService(PostRepository repository, AuthorService authors, ApplicationEventPublisher events) {
         this.repository = repository;
         this.authors = authors;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -56,6 +61,9 @@ public class ScheduleService {
         post.setStatus(PostStatus.SCHEDULED);
         post.setScheduledFor(request.scheduledFor());
         Post saved = repository.save(post);
+        // Handed to Kafka only after this transaction commits (see ScheduledPostPublisher).
+        events.publishEvent(new PostScheduledCreated(PostScheduledEvent.of(
+            saved.getId(), saved.getPlatformId(), saved.getContent(), saved.getScheduledFor())));
         log.info("Scheduled post {} for {}", saved.getId(), saved.getScheduledFor());
         return PostResponse.from(saved);
     }
