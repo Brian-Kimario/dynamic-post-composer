@@ -1,0 +1,312 @@
+{
+  "consumer": {
+    "name": "dpc-frontend"
+  },
+  "provider": {
+    "name": "post-composer-api"
+  },
+  "interactions": [
+    {
+      "description": "a request to list posts",
+      "providerStates": [
+        {
+          "name": "a draft post exists"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/posts",
+        "query": {
+          "status": [
+            "DRAFT"
+          ],
+          "page": [
+            "0"
+          ],
+          "size": [
+            "20"
+          ]
+        },
+        "headers": {
+          "Authorization": "Bearer token"
+        },
+        "generators": {
+          "header": {
+            "Authorization": {
+              "type": "ProviderState",
+              "expression": "Bearer ${token}",
+              "dataType": "STRING"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "status": "success",
+          "success": true,
+          "message": "Posts retrieved",
+          "data": {
+            "items": [
+              {
+                "id": "3f2b8c1e-0000-4000-8000-000000000001",
+                "content": "a draft",
+                "platformId": "x",
+                "status": "DRAFT",
+                "authorName": "Pact Author",
+                "likes": 0,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-01T00:00:00Z"
+              }
+            ],
+            "page": 0,
+            "size": 20,
+            "totalElements": 1,
+            "totalPages": 1,
+            "hasNext": false,
+            "hasPrevious": false
+          }
+        },
+        "matchingRules": {
+          "body": {
+            "$.data.items": {
+              "matchers": [
+                {
+                  "match": "type",
+                  "min": 1
+                }
+              ]
+            },
+            "$.data.items[*].id": {
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "[0-9a-f\\-]{36}"
+                }
+              ]
+            },
+            "$.data.items[*].content": {
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.data.items[*].authorName": {
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.data.items[*].likes": {
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.data.items[*].createdAt": {
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.data.items[*].updatedAt": {
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.data.totalElements": {
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.data.totalPages": {
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.message": {
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "a request to schedule a post",
+      "providerStates": [
+        {
+          "name": "an editor is signed in"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/schedule",
+        "headers": {
+          "Authorization": "Bearer token",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "content": "Launching next week",
+          "platformId": "linkedin",
+          "authorName": "Pact Author",
+          "scheduledFor": "2099-01-01T09:00:00Z"
+        },
+        "generators": {
+          "header": {
+            "Authorization": {
+              "type": "ProviderState",
+              "expression": "Bearer ${token}",
+              "dataType": "STRING"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "status": "success",
+          "success": true,
+          "data": {
+            "id": "3f2b8c1e-0000-4000-8000-000000000002",
+            "content": "Launching next week",
+            "platformId": "linkedin",
+            "status": "SCHEDULED",
+            "authorName": "Pact Author"
+          }
+        },
+        "matchingRules": {
+          "body": {
+            "$.data.id": {
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "[0-9a-f\\-]{36}"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "a request to schedule a post over the platform limit",
+      "providerStates": [
+        {
+          "name": "an editor is signed in"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/schedule",
+        "headers": {
+          "Authorization": "Bearer token",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "platformId": "x",
+          "authorName": "Pact Author",
+          "scheduledFor": "2099-01-01T09:00:00Z"
+        },
+        "generators": {
+          "header": {
+            "Authorization": {
+              "type": "ProviderState",
+              "expression": "Bearer ${token}",
+              "dataType": "STRING"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 422,
+        "body": {
+          "status": "error",
+          "success": false
+        },
+        "matchingRules": {
+          "body": {}
+        }
+      }
+    },
+    {
+      "description": "a request to read the current user",
+      "providerStates": [
+        {
+          "name": "an editor is signed in"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/auth/me",
+        "headers": {
+          "Authorization": "Bearer token"
+        },
+        "generators": {
+          "header": {
+            "Authorization": {
+              "type": "ProviderState",
+              "expression": "Bearer ${token}",
+              "dataType": "STRING"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "status": "success",
+          "success": true,
+          "data": {
+            "email": "noah@dpc.dev",
+            "displayName": "Noah",
+            "role": "EDITOR"
+          }
+        },
+        "matchingRules": {
+          "body": {
+            "$.data.email": {
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.data.displayName": {
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  }
+}

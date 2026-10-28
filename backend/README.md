@@ -145,3 +145,18 @@ Tests (`KafkaReliabilityTest`) run against an embedded broker, so no Docker is n
 (`docker compose up -d`). Observed: `[flaky]` succeeds after 2 backoff retries (~1s, ~2s); `[fail-transient]` retries
 1s/2s/4s then lands in `post.scheduled.DLT`; `[fail-permanent]` is dead-lettered with no backoff; replaying a processed
 `eventId` is ignored and increments `duplicatesSkipped`. Dead-letter rows now store the root cause message only.
+
+## Experiment 3.2.1: CI pipeline and automated testing
+
+| Layer | Tool | Where |
+|---|---|---|
+| Unit | JUnit 5, Mockito, AssertJ | `unit/` (`PlatformTest`, `AesGcmEncryptorTest`, `ScheduledPostProcessorTest`), `service/PostRulesTest` |
+| API | MockMvc / `@SpringBootTest` | existing `*ApiTest` classes |
+| Contract | Pact JVM provider (`junit5spring`) | `contract/PactProviderTest`, pact `src/test/resources/pacts/dpc-frontend-post-composer-api.json` |
+| Integration | Testcontainers (`cp-kafka:7.6.1`) | `KafkaTestcontainersTest` (skipped without Docker) |
+
+The pact is the React app's expectation of the API (consumer `dpc-frontend`, provider `post-composer-api`): list posts,
+schedule a post, the 422 platform-limit error and `/auth/me`. Each interaction is replayed against the running app; the
+provider-state generator swaps the placeholder bearer token for a real one issued to the seeded editor.
+
+CI: `.github/workflows/ci.yml` (backend `mvn clean verify`, frontend lint/test/build), uploading surefire reports as an artifact.
