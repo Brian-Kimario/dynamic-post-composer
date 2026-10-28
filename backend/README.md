@@ -111,3 +111,30 @@ export ENCRYPTION_KEY=$(openssl rand -base64 32)    # exactly 32 bytes, Base64
 If `JWT_SECRET` / `ENCRYPTION_KEY` are unset, random per-run keys are generated (nothing secret is committed); tokens and stored credentials then do not survive a restart. Changing `ENCRYPTION_KEY` makes existing stored credentials undecryptable (no key rotation yet).
 
 Postman: set the `demoPassword` collection variable, import `postman/post-composer-security.postman_collection.json`, run the logins first (they store `accessToken`); Postman's cookie jar carries the refresh cookie. Tests: `SecurityApiTest` (6) and `TokenLifecycleTest` (9).
+
+## Experiment 3.1.1: Kafka reliability (retry, DLQ, idempotency)
+
+Scheduling a post publishes a `PostScheduledEvent` to the `post.scheduled` topic **after the DB commit**. A consumer
+"publishes" it and is protected by three mechanisms:
+
+| Mechanism | Where |
+|---|---|
+| Retry with exponential backoff (1s, 2s, 4s; 3 retries) | `kafka/KafkaConfig` (`DefaultErrorHandler` + `ExponentialBackOffWithMaxRetries`) |
+| Dead-letter topic `post.scheduled.DLT` (after retries, or immediately for `PermanentPublishException`) | `kafka/KafkaConfig` (`DeadLetterPublishingRecoverer`), stored by `kafka/DeadLetterConsumer` |
+| Idempotent consumer (`processed_events` primary key, same transaction as the work) | `kafka/ScheduledPostProcessor` |
+
+The producer is idempotent too (`enable.idempotence=true`, `acks=all`).
+
+### Run it
+
+```bash
+docker compose up -d                    # Kafka on :9092, Kafka UI on http://localhost:8090
+KAFKA_ENABLED=true mvn spring-boot:run
+```
+
+Failure scenarios are triggered by a marker in the post content: `[flaky]` (fails twice, then succeeds),
+`[fail-transient]` (retries exhaust, goes to the DLT), `[fail-permanent]` (straight to the DLT).
+
+Admin-only inspection (JWT with the ADMIN role): `GET /api/v1/kafka/summary`, `/processed-events`, `/dead-letters`,
+and `POST /api/v1/kafka/replay/{eventId}` (re-sends an event with the same id; the consumer ignores it and counts it).
+Tests (`KafkaReliabilityTest`) run against an embedded broker, so no Docker is needed for `mvn test`.
