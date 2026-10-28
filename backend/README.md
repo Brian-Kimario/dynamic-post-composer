@@ -138,3 +138,10 @@ Failure scenarios are triggered by a marker in the post content: `[flaky]` (fail
 Admin-only inspection (JWT with the ADMIN role): `GET /api/v1/kafka/summary`, `/processed-events`, `/dead-letters`,
 and `POST /api/v1/kafka/replay/{eventId}` (re-sends an event with the same id; the consumer ignores it and counts it).
 Tests (`KafkaReliabilityTest`) run against an embedded broker, so no Docker is needed for `mvn test`.
+
+### Experiment 3.1.2: live verification
+
+3.1.2 repeats the 3.1.1 reliability aims, so it reuses the same implementation and verifies it against a real broker
+(`docker compose up -d`). Observed: `[flaky]` succeeds after 2 backoff retries (~1s, ~2s); `[fail-transient]` retries
+1s/2s/4s then lands in `post.scheduled.DLT`; `[fail-permanent]` is dead-lettered with no backoff; replaying a processed
+`eventId` is ignored and increments `duplicatesSkipped`. Dead-letter rows now store the root cause message only.

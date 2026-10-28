@@ -24,8 +24,15 @@ public class DeadLetterConsumer {
             @Header(value = KafkaHeaders.DLT_EXCEPTION_MESSAGE, required = false) byte[] errorMessage) {
         if (event == null || event.eventId() == null || deadLetters.existsByEventId(event.eventId())) return;
         deadLetters.save(new DeadLetter(event.eventId(), event.postId(), String.valueOf(event),
-            text(errorClass), text(errorMessage)));
+            text(errorClass), rootMessage(text(errorMessage))));
         log.error("Event {} dead-lettered: {}", event.eventId(), text(errorMessage));
+    }
+
+    /** Spring wraps listener failures as "Listener method '...' threw exception; <cause>"; keep only the cause. */
+    private static String rootMessage(String message) {
+        if (message == null) return null;
+        int i = message.lastIndexOf("exception; ");
+        return i >= 0 ? message.substring(i + "exception; ".length()) : message;
     }
 
     private static String text(byte[] b) { return b == null ? null : new String(b, StandardCharsets.UTF_8); }
