@@ -29,6 +29,8 @@ coverage
 .env
 .env.*
 !.env.example
+# Holds only the non-secret switch that points the dev SPA at the backend.
+!.env.development
 
 # Build/tooling caches
 .vite

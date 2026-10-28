@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSelector, createSlice, isRejected } from '@reduxjs/toolkit';
-import { login, refreshTokens, userFromClaims, verifyAccessToken } from '../services/authApi';
+import { login, logoutFromServer, refreshTokens, userFromClaims, verifyAccessToken } from '../services/authApi';
 import { permissionsForRole, roleHasPermission } from '../config/permissions';
 import { decodeToken } from '../services/jwt';
 import { tokenStorage } from '../services/tokenStorage';
@@ -83,6 +83,7 @@ export const logIn = createAsyncThunk('auth/logIn', async ({ email, password, re
 });
 
 export const logOut = createAsyncThunk('auth/logOut', async () => {
+  await logoutFromServer();
   tokenStorage.clear();
 });
 

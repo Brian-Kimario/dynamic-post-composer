@@ -1,4 +1,6 @@
-import { signToken, verifyToken, TokenError, TOKEN_ERROR } from './jwt';
+import { signToken, verifyToken, decodeToken, TokenError, TOKEN_ERROR } from './jwt';
+import { COOKIE_REFRESH_MARKER, USE_BACKEND } from './config';
+import { rawRequest } from './live/http';
 
 /**
  * The mock authentication server.
@@ -105,6 +107,8 @@ function delay() {
  * that costs nothing to avoid.
  */
 export async function login({ email, password }) {
+  if (USE_BACKEND) return liveLogin({ email, password });
+
   await delay();
 
   const normalizedEmail = String(email ?? '')
@@ -175,6 +179,8 @@ async function issueTokenPair(user) {
  * can invalidate the previous one and detect replay.
  */
 export async function refreshTokens(refreshToken) {
+  if (USE_BACKEND) return liveRefresh();
+
   await delay();
 
   const claims = await verifyToken(refreshToken, { secret: SIGNING_SECRET });
@@ -205,6 +211,8 @@ export async function refreshTokens(refreshToken) {
  * stand in for the short-lived one.
  */
 export async function verifyAccessToken(token) {
+  if (USE_BACKEND) return verifyLiveToken(token);
+
   const claims = await verifyToken(token, { secret: SIGNING_SECRET });
 
   if (claims.typ !== TOKEN_TYPE.ACCESS) {
@@ -218,8 +226,51 @@ export async function verifyAccessToken(token) {
 export function userFromClaims(claims) {
   return {
     id: claims.sub,
-    name: claims.name,
+    name: claims.name ?? claims.email,
     email: claims.email,
-    role: claims.role,
+    // The backend names roles in upper case (`ADMIN`); the UI's permission map uses lower case.
+    role: String(claims.role).toLowerCase(),
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Spring Boot backend (experiment 3.3.1)                                      */
+/* -------------------------------------------------------------------------- */
+
+async function liveLogin({ email, password }) {
+  const data = await rawRequest({
+    method: 'POST',
+    path: '/api/v1/auth/login',
+    body: { email: String(email ?? '').trim(), password },
+  });
+
+  return { accessToken: data.accessToken, refreshToken: COOKIE_REFRESH_MARKER };
+}
+
+async function liveRefresh() {
+  const data = await rawRequest({ method: 'POST', path: '/api/v1/auth/refresh' });
+
+  return { accessToken: data.accessToken, refreshToken: COOKIE_REFRESH_MARKER };
+}
+
+/** Ends the server-side refresh token and clears its cookie; a failure must not block sign-out. */
+export async function logoutFromServer() {
+  if (!USE_BACKEND) return;
+
+  try {
+    await rawRequest({ method: 'POST', path: '/api/v1/auth/logout' });
+  } catch {
+    // The local session is cleared regardless.
+  }
+}
+
+/** The signature is the server's to check; the client only reads the claims and the expiry. */
+async function verifyLiveToken(token) {
+  const { payload } = decodeToken(token);
+
+  if (payload.exp * 1000 <= Date.now()) {
+    throw new TokenError(TOKEN_ERROR.EXPIRED, 'Token expired.');
+  }
+
+  return payload;
 }

@@ -49,6 +49,7 @@ public class JwtService {
             .issuer(issuer)
             .subject(user.id().toString())
             .claim("email", user.email())
+            .claim("name", user.displayName())
             .claim("role", user.role().name())
             .issuedAt(Date.from(now))
             .expiration(Date.from(now.plus(accessTtl)))

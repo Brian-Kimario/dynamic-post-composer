@@ -1735,6 +1735,29 @@ deploy/canary-check.sh http://localhost:8081 100
 docker compose -f deploy/docker-compose.canary.yml down
 ```
 
+### Full-stack integration (3.3.1)
+
+The React app now talks to the Spring Boot API instead of the in-browser mock. `VITE_USE_BACKEND=true` (committed in `.env.development`) switches the data layer; tests run without it and keep using the mock.
+
+| Concern | Frontend | Backend |
+| --- | --- | --- |
+| Login / refresh / logout | `services/authApi.js` | `POST /api/v1/auth/{login,refresh,logout}` (refresh token is an HttpOnly cookie) |
+| Bearer token, 401 -> single-flight refresh -> retry, error mapping | `services/live/http.js` | `ApiResponse` envelope, `GlobalExceptionHandler` |
+| Publish a post | `services/live/collections.js` | `POST /api/v1/posts` |
+| Calendar and scheduling (create, drag to reschedule, remove) | `scheduleApi` | `/api/v1/schedule` (+ Kafka pipeline) |
+| Analytics | `components/insights/BackendAnalyticsPanel.jsx` | `GET /api/v1/stats` |
+
+Errors: 401 refreshes once then signs out, 403 shows a role message without ending the session, 400 shows per-field messages, anything else shows the server message; network failures say the server is unreachable. Vite proxies `/api` to `localhost:8080`, so the cookie is same-origin.
+
+Run both halves:
+
+```bash
+cd backend && DEMO_PASSWORD=composer123 mvn spring-boot:run   # API on :8080
+npm run dev                                                     # UI on :5173, sign in as ava@dpc.dev / composer123
+```
+
+Drafts remain browser-local; the backend has no draft endpoint in this experiment.
+
 ## Experiment 2.2.2 - Query optimisation, caching and benchmarking
 
 ### N+1 fixed with JOIN FETCH
