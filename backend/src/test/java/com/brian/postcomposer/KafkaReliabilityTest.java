@@ -57,7 +57,7 @@ class KafkaReliabilityTest {
         UUID id = schedule("never works [fail-transient]");
         await().atMost(Duration.ofSeconds(20)).until(() -> deadLetteredFor(id));
         var letter = deadLetters.findAll().stream().filter(d -> id.equals(d.getPostId())).findFirst().orElseThrow();
-        assertThat(letter.getErrorMessage()).contains("Platform unavailable");
+        assertThat(letter.getErrorMessage()).contains("Platform unavailable").doesNotContain("Listener method");
         assertThat(processedFor(id)).isFalse();
     }
 
