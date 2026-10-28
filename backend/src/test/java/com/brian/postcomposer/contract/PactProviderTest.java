@@ -54,6 +54,7 @@ public class PactProviderTest {
 
     @State("a draft post exists")
     Map<String, Object> aDraftPostExists() {
+        posts.deleteAll(); // the context is shared with other tests; the contract expects exactly one post on page 0
         Post post = new Post();
         post.setContent("a draft");
         post.setPlatformId("x");
