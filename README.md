@@ -14,7 +14,7 @@ Access is role-based: what a user can see, open and do is determined by the role
 Posts can also be scheduled onto a content calendar and rearranged by dragging.
 
 Built as a progressively extended project for Full Stack-II. This repository currently contains
-**Experiments 1.1.1 to 1.4.2** (frontend) and the Spring Boot backend for **Experiments 2.1 to 2.3, 3.1 and 3.2.1**.
+**Experiments 1.1.1 to 1.4.2** (frontend) and the Spring Boot backend for **Experiments 2.1 to 2.3, 3.1, 3.2.1 and 3.2.2**.
 
 ---
 
@@ -1700,6 +1700,7 @@ The UI still uses its localStorage mock services; wiring them to the API is a la
 | 2.3 | Stateless JWT auth, RBAC (ADMIN / EDITOR / VIEWER), AES-256-GCM encrypted OAuth credentials, refresh-token rotation with reuse detection |
 | 3.1.1 | Kafka event-driven scheduling with exponential-backoff retry, dead-letter topic and idempotent consumer |
 | 3.2.1 | CI pipeline (GitHub Actions) running unit, API, Pact contract and Testcontainers Kafka tests on every push and pull request |
+| 3.2.2 | CD pipeline: Dockerfile, image pushed to GitHub Container Registry, 90/10 canary release gated on health, then promote |
 
 ### Kafka reliability (3.1.1)
 Scheduling a post publishes a `PostScheduledEvent` to `post.scheduled` after the DB commit. The consumer retries
@@ -1719,6 +1720,19 @@ Backend layers: JUnit 5/Mockito unit tests (`unit/`, `service/`), MockMvc API te
 frontend's contract (`contract/PactProviderTest`, `src/test/resources/pacts/`) and `KafkaTestcontainersTest`.
 ```bash
 cd backend && mvn clean verify     # 67 tests; Testcontainers is skipped automatically if Docker is not running
+```
+
+### Continuous deployment and canary release (3.2.2)
+`.github/workflows/cd.yml` runs only after the **CI** workflow succeeds on `main`: it builds `backend/Dockerfile`, pushes the
+image to `ghcr.io/<owner>/<repo>/post-composer-api:<sha>` using the built-in `GITHUB_TOKEN` (no stored credentials), then
+starts a **stable** and a **canary** container behind an nginx gateway that sends about 10% of traffic to the canary.
+`backend/deploy/canary-check.sh` fires 100 requests, counts which version answered and fails the job (rollback: traffic
+stays on stable) on any error; otherwise the canary is promoted. Try it locally:
+```bash
+cd backend && docker build -t dpc-api:local . && docker compose -f deploy/docker-compose.canary.yml up -d --wait
+curl -i http://localhost:8081/actuator/info     # repeat: ~1 in 10 answers {"app":{"version":"canary"}}
+deploy/canary-check.sh http://localhost:8081 100
+docker compose -f deploy/docker-compose.canary.yml down
 ```
 
 ## Experiment 2.2.2 - Query optimisation, caching and benchmarking
