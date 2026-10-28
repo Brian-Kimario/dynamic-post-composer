@@ -1,0 +1,14 @@
+# Canary release locally: stable (9/10 of traffic) + canary (1/10) behind an nginx gateway on :8081.
+#   STABLE_IMAGE / CANARY_IMAGE default to the locally built image.
+services:
+  stable:
+    image: ${STABLE_IMAGE:-dpc-api:local}
+    environment: { APP_VERSION: stable }
+  canary:
+    image: ${CANARY_IMAGE:-dpc-api:local}
+    environment: { APP_VERSION: canary }
+  gateway:
+    image: nginx:1.27-alpine
+    ports: ["8081:80"]
+    volumes: ["./nginx.conf:/etc/nginx/conf.d/default.conf:ro"]
+    depends_on: [stable, canary]

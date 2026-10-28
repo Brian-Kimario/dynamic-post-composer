@@ -160,3 +160,14 @@ schedule a post, the 422 platform-limit error and `/auth/me`. Each interaction i
 provider-state generator swaps the placeholder bearer token for a real one issued to the seeded editor.
 
 CI: `.github/workflows/ci.yml` (backend `mvn clean verify`, frontend lint/test/build), uploading surefire reports as an artifact.
+
+## Experiment 3.2.2: Continuous deployment with Docker and canary release
+
+- `Dockerfile`: multi-stage build (Maven, then `eclipse-temurin:25-jre`), non-root user, healthcheck on `/actuator/health`.
+- `.github/workflows/cd.yml`: triggered by `workflow_run` of **CI** (success only) -> build image -> push to GHCR with
+  `GITHUB_TOKEN` -> canary job.
+- Canary: `deploy/docker-compose.canary.yml` runs `stable` and `canary` containers behind `deploy/nginx.conf`
+  (weights 9:1). `/actuator/info` reports `APP_VERSION`, so each response shows which version served it.
+  `deploy/canary-check.sh` is the gate: any failed request or zero canary traffic means rollback, otherwise promote.
+- Observed locally: `requests=100 stable=85 canary=15 errors=0` -> `CANARY HEALTHY -> promote to 100%`.
+- Added `spring-boot-starter-actuator` exposing only `health` and `info`; both are public so probes work.
